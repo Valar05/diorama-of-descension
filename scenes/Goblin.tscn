@@ -1,0 +1,330 @@
+[gd_scene load_steps=17 format=3 uid="uid://dxgrisr8frikb"]
+
+[ext_resource type="Texture2D" uid="uid://cw5bcatq3vxg7" path="res://sprites/Goblin_front.png" id="1_a3myn"]
+[ext_resource type="Script" uid="uid://pqmxh3lkkoq6" path="res://scripts/melee_enemy.gd" id="1_gqwdn"]
+[ext_resource type="Texture2D" uid="uid://bgps5pqu4erjh" path="res://sprites/Forsaken_player_shadow_front.png" id="2_7e48s"]
+[ext_resource type="Texture2D" uid="uid://qxmllpdcfjua" path="res://sprites/Goblin_right.png" id="3_hc4ni"]
+[ext_resource type="Texture2D" uid="uid://c5sy2mve71rap" path="res://sprites/Goblin_back.png" id="4_5qxdi"]
+[ext_resource type="Shader" uid="uid://bk304wsnbmt2j" path="res://scripts/SpriteShader.gdshader" id="6_5qxdi"]
+[ext_resource type="Texture2D" uid="uid://byjn4fsugfkn6" path="res://sprites/DissolveNoise.tres" id="7_cxxf0"]
+[ext_resource type="Texture2D" uid="uid://bwudavh7auyk4" path="res://sprites/eye_gleam.png" id="8_f0j0q"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_hc4ni"]
+size = Vector2(107, 162)
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_gsl6h"]
+radius = 21.0
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_cxxf0"]
+resource_local_to_scene = true
+shader = ExtResource("6_5qxdi")
+shader_parameter/dissolve_progress = 0.0
+shader_parameter/dissolve_noise_scale = 2.94900013937898
+shader_parameter/dissolve_noise_tex = ExtResource("7_cxxf0")
+shader_parameter/dissolve_noise_offset = Vector2(0, 0)
+shader_parameter/glow_radius = 35.0970016671075
+shader_parameter/glow_color = Color(1, 0.78, 0.78, 1)
+shader_parameter/modulate_color = Color(1, 1, 1, 1)
+shader_parameter/use_gradient_remap = false
+shader_parameter/overall_size = 1.0
+shader_parameter/top_stretch = 0.0
+shader_parameter/bottom_stretch = 0.0
+shader_parameter/left_stretch = 0.0
+shader_parameter/right_stretch = 0.0
+shader_parameter/top_falloff = 0.5
+shader_parameter/bottom_falloff = 0.5
+shader_parameter/left_falloff = 0.5
+shader_parameter/right_falloff = 0.5
+shader_parameter/black_threshold = 0.05
+
+[sub_resource type="Animation" id="Animation_cxxf0"]
+length = 0.001
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("Sprite2D_body:material:shader_parameter/modulate_color")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Color(1, 1, 1, 1)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("Sprite2D_body:material:shader_parameter/glow_color")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Color(1, 0.78, 0.78, 1)]
+}
+tracks/2/type = "value"
+tracks/2/imported = false
+tracks/2/enabled = true
+tracks/2/path = NodePath("Sprite2D_body:material:shader_parameter/dissolve_progress")
+tracks/2/interp = 1
+tracks/2/loop_wrap = true
+tracks/2/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [0.0]
+}
+tracks/3/type = "value"
+tracks/3/imported = false
+tracks/3/enabled = true
+tracks/3/path = NodePath("Sprite2D_shadow:modulate")
+tracks/3/interp = 1
+tracks/3/loop_wrap = true
+tracks/3/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Color(1, 1, 1, 1)]
+}
+tracks/4/type = "value"
+tracks/4/imported = false
+tracks/4/enabled = true
+tracks/4/path = NodePath("EyeGleam:scale")
+tracks/4/interp = 1
+tracks/4/loop_wrap = true
+tracks/4/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Vector2(0.5, 0.5)]
+}
+tracks/5/type = "value"
+tracks/5/imported = false
+tracks/5/enabled = true
+tracks/5/path = NodePath("EyeGleam:modulate")
+tracks/5/interp = 1
+tracks/5/loop_wrap = true
+tracks/5/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Color(1, 1, 1, 0)]
+}
+tracks/6/type = "value"
+tracks/6/imported = false
+tracks/6/enabled = true
+tracks/6/path = NodePath("EyeGleam:rotation")
+tracks/6/interp = 1
+tracks/6/loop_wrap = true
+tracks/6/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [0.0]
+}
+
+[sub_resource type="Animation" id="Animation_f0j0q"]
+resource_name = "die"
+step = 0.05
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("Sprite2D_body:material:shader_parameter/glow_color")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0, 0.30276665),
+"transitions": PackedFloat32Array(0.5, 1),
+"update": 0,
+"values": [Color(1, 0.78, 0.78, 1), Color(0.48822868, 0, 0.122412644, 1)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("Sprite2D_body:material:shader_parameter/dissolve_progress")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0, 0.30276665),
+"transitions": PackedFloat32Array(1, 1),
+"update": 0,
+"values": [0.0, 1.0]
+}
+tracks/2/type = "value"
+tracks/2/imported = false
+tracks/2/enabled = true
+tracks/2/path = NodePath("Sprite2D_shadow:modulate")
+tracks/2/interp = 1
+tracks/2/loop_wrap = true
+tracks/2/keys = {
+"times": PackedFloat32Array(0, 0.30404684),
+"transitions": PackedFloat32Array(2, 1),
+"update": 0,
+"values": [Color(1, 1, 1, 1), Color(1, 1, 1, 0)]
+}
+tracks/3/type = "value"
+tracks/3/imported = false
+tracks/3/enabled = true
+tracks/3/path = NodePath("EyeGleam:modulate")
+tracks/3/interp = 1
+tracks/3/loop_wrap = true
+tracks/3/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Color(1, 1, 1, 0)]
+}
+
+[sub_resource type="Animation" id="Animation_5qxdi"]
+resource_name = "hurt"
+step = 0.05
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("Sprite2D_body:material:shader_parameter/modulate_color")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0, 0.05, 0.10000001, 0.2, 0.25),
+"transitions": PackedFloat32Array(0.5, 2, 0.5, 2, 2),
+"update": 0,
+"values": [Color(1, 1, 1, 1), Color(1, 0.37, 0.37, 1), Color(1, 1, 1, 1), Color(1, 0.37, 0.37, 1), Color(1, 1, 1, 1)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("Sprite2D_body:material:shader_parameter/glow_color")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0, 0.05, 0.10000001, 0.2, 0.25),
+"transitions": PackedFloat32Array(2, 0.5, 2, 0.5, 2),
+"update": 0,
+"values": [Color(1, 0.78, 0.78, 1), Color(0.9404937, 0, 0.006420835, 1), Color(1, 0.78, 0.78, 1), Color(0.9411765, 0, 0.007843138, 1), Color(1, 0.78, 0.78, 1)]
+}
+tracks/2/type = "value"
+tracks/2/imported = false
+tracks/2/enabled = true
+tracks/2/path = NodePath("EyeGleam:modulate")
+tracks/2/interp = 1
+tracks/2/loop_wrap = true
+tracks/2/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Color(1, 1, 1, 0)]
+}
+
+[sub_resource type="Animation" id="Animation_73a5l"]
+resource_name = "windup"
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("Sprite2D_body:material:shader_parameter/modulate_color")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0, 0.16666667, 0.36666667),
+"transitions": PackedFloat32Array(0.5, 1, 1),
+"update": 0,
+"values": [Color(1, 1, 1, 1), Color(1, 0.56700534, 0.044507913, 1), Color(1, 1, 1, 1)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("Sprite2D_body:material:shader_parameter/glow_color")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0, 0.16666667, 0.36666667),
+"transitions": PackedFloat32Array(0.5, 1, 0.5),
+"update": 0,
+"values": [Color(1, 0.78, 0.78, 1), Color(1, 0.06999999, 0.06999999, 1), Color(1, 0.78, 0.78, 1)]
+}
+tracks/2/type = "value"
+tracks/2/imported = false
+tracks/2/enabled = true
+tracks/2/path = NodePath("EyeGleam:scale")
+tracks/2/interp = 1
+tracks/2/loop_wrap = true
+tracks/2/keys = {
+"times": PackedFloat32Array(0, 0.36666667),
+"transitions": PackedFloat32Array(1, 1),
+"update": 0,
+"values": [Vector2(0.1, 0.1), Vector2(0.5, 0.5)]
+}
+tracks/3/type = "value"
+tracks/3/imported = false
+tracks/3/enabled = true
+tracks/3/path = NodePath("EyeGleam:modulate")
+tracks/3/interp = 1
+tracks/3/loop_wrap = true
+tracks/3/keys = {
+"times": PackedFloat32Array(0, 0.23333333, 0.36666667),
+"transitions": PackedFloat32Array(0.5, 1, 1),
+"update": 0,
+"values": [Color(1, 1, 1, 0), Color(1, 1, 1, 1), Color(1, 1, 1, 0)]
+}
+tracks/4/type = "value"
+tracks/4/imported = false
+tracks/4/enabled = true
+tracks/4/path = NodePath("EyeGleam:rotation")
+tracks/4/interp = 1
+tracks/4/loop_wrap = true
+tracks/4/keys = {
+"times": PackedFloat32Array(0, 0.36666667),
+"transitions": PackedFloat32Array(1, 1),
+"update": 0,
+"values": [0.0, 1.5707964]
+}
+
+[sub_resource type="AnimationLibrary" id="AnimationLibrary_f0j0q"]
+_data = {
+&"RESET": SubResource("Animation_cxxf0"),
+&"die": SubResource("Animation_f0j0q"),
+&"hurt": SubResource("Animation_5qxdi"),
+&"windup": SubResource("Animation_73a5l")
+}
+
+[node name="Goblin" type="CharacterBody2D"]
+script = ExtResource("1_gqwdn")
+attack_distance = 200.0
+sprite_front = ExtResource("1_a3myn")
+sprite_right = ExtResource("3_hc4ni")
+sprite_back = ExtResource("4_5qxdi")
+launcher_peak_increase = 3.0
+debug_launcher_visual = true
+
+[node name="Hurtbox" type="Area2D" parent="."]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Hurtbox"]
+position = Vector2(1.5, -4)
+shape = SubResource("RectangleShape2D_hc4ni")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(0, 54)
+shape = SubResource("CircleShape2D_gsl6h")
+
+[node name="Sprite2D_shadow" type="Sprite2D" parent="."]
+scale = Vector2(0.6, 0.6)
+texture = ExtResource("2_7e48s")
+
+[node name="Sprite2D_body" type="Sprite2D" parent="."]
+material = SubResource("ShaderMaterial_cxxf0")
+position = Vector2(-5, -5.0000005)
+scale = Vector2(0.405, 0.405)
+texture = ExtResource("1_a3myn")
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="."]
+libraries = {
+&"": SubResource("AnimationLibrary_f0j0q")
+}
+
+[node name="EyeGleam" type="Sprite2D" parent="."]
+modulate = Color(1, 1, 1, 0)
+position = Vector2(-6, -39.000004)
+scale = Vector2(0.5, 0.5)
+texture = ExtResource("8_f0j0q")
+
+[connection signal="animation_finished" from="AnimationPlayer" to="." method="_on_animation_player_animation_finished"]

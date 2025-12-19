@@ -1,0 +1,59 @@
+{
+    "light":[
+        {
+            "name":"SlashLeft",
+            "damage":10,
+            "intensity_x": 1.4,
+            "intensity_y": 1.4
+        },
+        {
+            "name":"SlashRight",
+            "damage":10,
+            "intensity_x": 1.6,
+            "intensity_y": 1.6
+        },
+        {
+            "name":"SlashDiagonalLeft",
+            "damage":12,
+            "knockback": 1.25,
+            "intensity_x": 1.7,
+            "intensity_y": 1.7
+        },
+        {
+            "name":"SlashDiagonalRight",
+            "damage":12,
+            "knockback": 1.25,
+            "intensity_x": 1.7,
+            "intensity_y": 1.7
+        },
+        {
+            "name":"SlashDown",
+            "damage":15,
+            "knockback": 2.0,
+            "intensity_x": 2.2,
+            "intensity_y":2.2
+        }
+    ],
+    "dash_slash":{
+        "name":"DashSlash",
+        "damage":6,
+        "intensity_x": 1.4,
+        "intensity_y": 1.4,
+        "parry_damage": 40,
+        "parry_intensity": 3.0
+    },
+    "kick":{
+        "name":"Kick",
+        "damage":8,
+        "knockback": 3.0,
+        "intensity_x": 2.5,
+        "intensity_y": 2.5
+    },
+    "launcher":{
+        "name":"Launcher",
+        "damage":8,
+        "intensity_x": 1.2,
+        "intensity_y": 3.5
+    }
+
+}

@@ -1,0 +1,298 @@
+[gd_scene load_steps=23 format=3 uid="uid://dtuisc8mvr83r"]
+
+[ext_resource type="Texture2D" uid="uid://52h5bfe1f36k" path="res://sprites/Forsaken_player_front.png" id="1_3vyb7"]
+[ext_resource type="Texture2D" uid="uid://bgps5pqu4erjh" path="res://sprites/Forsaken_player_shadow_front.png" id="1_g2els"]
+[ext_resource type="Script" uid="uid://b0mvkf17px0yp" path="res://scripts/player.gd" id="1_qhqgy"]
+[ext_resource type="Texture2D" uid="uid://drwyaxaj5wnjr" path="res://sprites/Forsaken_player_right.png" id="3_qlg0r"]
+[ext_resource type="Texture2D" uid="uid://c4km20xurxjv4" path="res://sprites/Forsaken_player_back.png" id="4_tuyoq"]
+[ext_resource type="PackedScene" uid="uid://dersrlumqsgjr" path="res://scenes/Slash.tscn" id="5_tuyoq"]
+[ext_resource type="Shader" uid="uid://bk304wsnbmt2j" path="res://scripts/SpriteShader.gdshader" id="7_fjrip"]
+[ext_resource type="Shader" uid="uid://dudkfgkoeol0h" path="res://scenes/Slash.gdshader" id="8_ur7pv"]
+[ext_resource type="Gradient" uid="uid://ch2tb1nb45mpa" path="res://scenes/SlashGradient.tres" id="9_d2wvv"]
+[ext_resource type="Texture2D" uid="uid://bgpywqwfkjnkq" path="res://sprites/SlashTex.png" id="9_y4r1p"]
+[ext_resource type="Texture2D" uid="uid://ww4iletu1iid" path="res://sprites/FacingIndicator.png" id="11_d2wvv"]
+[ext_resource type="PackedScene" uid="uid://crgv7271us50m" path="res://scenes/Boot.tscn" id="12_3v2ag"]
+
+[sub_resource type="ViewportTexture" id="ViewportTexture_3v2ag"]
+viewport_path = NodePath("SubViewport")
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_jej6c"]
+size = Vector2(340.57138, 268.9051)
+
+[sub_resource type="GradientTexture1D" id="GradientTexture1D_f1ej7"]
+gradient = ExtResource("9_d2wvv")
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_d2wvv"]
+resource_local_to_scene = true
+shader = ExtResource("8_ur7pv")
+shader_parameter/slash_tex = ExtResource("9_y4r1p")
+shader_parameter/gradient_tex = SubResource("GradientTexture1D_f1ej7")
+shader_parameter/hdr_intensity = 1.745
+shader_parameter/time = 0.0
+shader_parameter/intensity = 1.0
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_g2els"]
+size = Vector2(114, 114)
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_smehm"]
+shader = ExtResource("7_fjrip")
+shader_parameter/dissolve_progress = 0.0
+shader_parameter/dissolve_noise_scale = 1.0
+shader_parameter/dissolve_noise_offset = Vector2(0, 0)
+shader_parameter/glow_radius = 21.82800103683
+shader_parameter/glow_color = Color(0.26666668, 1, 1, 1)
+shader_parameter/modulate_color = Color(1, 1, 1, 1)
+shader_parameter/use_gradient_remap = false
+shader_parameter/overall_size = 1.0
+shader_parameter/top_stretch = 0.0
+shader_parameter/bottom_stretch = 0.0
+shader_parameter/left_stretch = 0.0
+shader_parameter/right_stretch = 0.0
+shader_parameter/top_falloff = 0.5
+shader_parameter/bottom_falloff = 0.5
+shader_parameter/left_falloff = 0.5
+shader_parameter/right_falloff = 0.5
+shader_parameter/black_threshold = 0.05
+
+[sub_resource type="Animation" id="Animation_3v2ag"]
+resource_name = "DashSlash"
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("DashSlashHitbox/DashSlash:visible")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 1,
+"values": [true]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("DashSlashHitbox/DashSlash:scale")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0, 0.016642565, 0.14850287, 0.26666668, 0.3),
+"transitions": PackedFloat32Array(1, 1, 1, 1, 1),
+"update": 0,
+"values": [Vector2(0.875, 0.035), Vector2(0.875, 0.605), Vector2(0.875, 0.73), Vector2(0.875, 0.605), Vector2(0.875, 0.035)]
+}
+tracks/2/type = "value"
+tracks/2/imported = false
+tracks/2/enabled = true
+tracks/2/path = NodePath("DashSlashHitbox/DashSlash:modulate")
+tracks/2/interp = 1
+tracks/2/loop_wrap = true
+tracks/2/keys = {
+"times": PackedFloat32Array(0, 0.01792276, 0.26628104, 0.30148646),
+"transitions": PackedFloat32Array(1, 1, 1, 1),
+"update": 0,
+"values": [Color(1, 1, 1, 0), Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 0)]
+}
+tracks/3/type = "value"
+tracks/3/imported = false
+tracks/3/enabled = true
+tracks/3/path = NodePath("DashSlashHitbox/DashSlash:material:shader_parameter/time")
+tracks/3/interp = 1
+tracks/3/loop_wrap = true
+tracks/3/keys = {
+"times": PackedFloat32Array(0, 0.30148646),
+"transitions": PackedFloat32Array(1, 1),
+"update": 0,
+"values": [0.0, 1.0]
+}
+tracks/4/type = "value"
+tracks/4/imported = false
+tracks/4/enabled = true
+tracks/4/path = NodePath("Sprite2D_body:material:shader_parameter/glow_color")
+tracks/4/interp = 1
+tracks/4/loop_wrap = true
+tracks/4/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Color(0.26666668, 1, 1, 1)]
+}
+tracks/5/type = "value"
+tracks/5/imported = false
+tracks/5/enabled = true
+tracks/5/path = NodePath("Sprite2D_body:material:shader_parameter/modulate_color")
+tracks/5/interp = 1
+tracks/5/loop_wrap = true
+tracks/5/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Color(1, 1, 1, 1)]
+}
+
+[sub_resource type="Animation" id="Animation_smehm"]
+length = 0.001
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("Sprite2D_body:material:shader_parameter/modulate_color")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Color(1, 1, 1, 1)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("DashSlashHitbox/DashSlash:visible")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 1,
+"values": [false]
+}
+tracks/2/type = "value"
+tracks/2/imported = false
+tracks/2/enabled = true
+tracks/2/path = NodePath("DashSlashHitbox/DashSlash:scale")
+tracks/2/interp = 1
+tracks/2/loop_wrap = true
+tracks/2/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Vector2(0.875, 0.035)]
+}
+tracks/3/type = "value"
+tracks/3/imported = false
+tracks/3/enabled = true
+tracks/3/path = NodePath("DashSlashHitbox/DashSlash:modulate")
+tracks/3/interp = 1
+tracks/3/loop_wrap = true
+tracks/3/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Color(1, 1, 1, 0)]
+}
+tracks/4/type = "value"
+tracks/4/imported = false
+tracks/4/enabled = true
+tracks/4/path = NodePath("DashSlashHitbox/DashSlash:material:shader_parameter/time")
+tracks/4/interp = 1
+tracks/4/loop_wrap = true
+tracks/4/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [0.0]
+}
+tracks/5/type = "value"
+tracks/5/imported = false
+tracks/5/enabled = true
+tracks/5/path = NodePath("Sprite2D_body:material:shader_parameter/glow_color")
+tracks/5/interp = 1
+tracks/5/loop_wrap = true
+tracks/5/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Color(0.26666668, 1, 1, 1)]
+}
+
+[sub_resource type="Animation" id="Animation_fjrip"]
+resource_name = "hurt"
+length = 0.2
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("Sprite2D_body:material:shader_parameter/modulate_color")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0, 0.06666667, 0.13333334, 0.2),
+"transitions": PackedFloat32Array(1, 1, 1, 1),
+"update": 0,
+"values": [Color(1, 0, 0, 1), Color(0.98388106, 0.6630636, 0, 1), Color(1, 0, 0, 1), Color(1, 1, 1, 1)]
+}
+
+[sub_resource type="AnimationLibrary" id="AnimationLibrary_ur7pv"]
+_data = {
+&"DashSlash": SubResource("Animation_3v2ag"),
+&"RESET": SubResource("Animation_smehm"),
+&"hurt": SubResource("Animation_fjrip")
+}
+
+[node name="Player" type="CharacterBody2D"]
+script = ExtResource("1_qhqgy")
+sprite_front = ExtResource("1_3vyb7")
+sprite_right = ExtResource("3_qlg0r")
+sprite_back = ExtResource("4_tuyoq")
+Slash = ExtResource("5_tuyoq")
+kick_pause_delay = 0.5
+debug_attack_input = true
+
+[node name="TextureRect" type="TextureRect" parent="."]
+offset_left = -179.00002
+offset_top = -121.000015
+offset_right = 333.0
+offset_bottom = 391.0
+scale = Vector2(0.7677274, 0.7677274)
+texture = SubResource("ViewportTexture_3v2ag")
+
+[node name="DashSlashHitbox" type="Area2D" parent="."]
+position = Vector2(-1, -2)
+rotation = -3.1415925
+scale = Vector2(0.875, 0.69541264)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="DashSlashHitbox"]
+position = Vector2(170.28577, -2.8760228)
+rotation = -3.1415925
+scale = Vector2(0.99999976, 1)
+shape = SubResource("RectangleShape2D_jej6c")
+
+[node name="DashSlash" type="Sprite2D" parent="DashSlashHitbox"]
+visible = false
+modulate = Color(1, 1, 1, 0)
+material = SubResource("ShaderMaterial_d2wvv")
+rotation = 3.1415927
+scale = Vector2(0.875, 0.035)
+texture = ExtResource("9_y4r1p")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(-2, 27)
+shape = SubResource("RectangleShape2D_g2els")
+
+[node name="Sprite2D_shadow" type="Sprite2D" parent="."]
+scale = Vector2(0.75, 0.75)
+texture = ExtResource("1_g2els")
+
+[node name="Sprite2D_body" type="Sprite2D" parent="."]
+material = SubResource("ShaderMaterial_smehm")
+scale = Vector2(0.75, 0.75)
+texture = ExtResource("1_3vyb7")
+metadata/_edit_group_ = true
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="."]
+libraries = {
+&"": SubResource("AnimationLibrary_ur7pv")
+}
+
+[node name="SubViewport" type="SubViewport" parent="."]
+transparent_bg = true
+
+[node name="Camera3D" type="Camera3D" parent="SubViewport"]
+transform = Transform3D(1, 0, 0, 0, 0.8587901, 0.5123277, 0, -0.5123277, 0.8587901, 0, 1.0518761, 2.1260498)
+size = 2.9565804
+
+[node name="FacingSprite" type="Sprite3D" parent="SubViewport"]
+transform = Transform3D(-1.2894859e-08, -0.295, -1.2894859e-08, 0, -1.2894859e-08, 0.295, -0.295, 1.2894859e-08, 5.636522e-16, 0, 0, 0)
+texture = ExtResource("11_d2wvv")
+
+[node name="Boot" parent="." instance=ExtResource("12_3v2ag")]
+
+[editable path="Boot"]

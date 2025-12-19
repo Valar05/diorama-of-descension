@@ -1,0 +1,225 @@
+[gd_scene load_steps=9 format=3 uid="uid://crgv7271us50m"]
+
+[ext_resource type="Script" uid="uid://mb0xofvbxr6t" path="res://scenes/boot.gd" id="1_wfhjv"]
+[ext_resource type="Shader" uid="uid://bk304wsnbmt2j" path="res://scripts/SpriteShader.gdshader" id="2_2j851"]
+[ext_resource type="Texture2D" uid="uid://cdowl2ojy75cs" path="res://sprites/Boot.png" id="3_7amo1"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_ekwal"]
+shader = ExtResource("2_2j851")
+shader_parameter/dissolve_progress = 0.0
+shader_parameter/dissolve_noise_scale = 1.0
+shader_parameter/dissolve_noise_offset = Vector2(0, 0)
+shader_parameter/glow_radius = 64.0
+shader_parameter/glow_color = Color(0.26666668, 1, 1, 1)
+shader_parameter/modulate_color = Color(1, 1, 1, 1)
+shader_parameter/use_gradient_remap = false
+shader_parameter/overall_size = 1.0
+shader_parameter/top_stretch = 0.0
+shader_parameter/bottom_stretch = 0.0
+shader_parameter/left_stretch = 0.0
+shader_parameter/right_stretch = 1.0170001433075
+shader_parameter/top_falloff = 0.5
+shader_parameter/bottom_falloff = 0.5
+shader_parameter/left_falloff = 0.5
+shader_parameter/right_falloff = 0.5
+shader_parameter/black_threshold = 0.05
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_k5ps1"]
+size = Vector2(176.37799, 191.17647)
+
+[sub_resource type="Animation" id="Animation_bgikk"]
+resource_name = "default"
+length = 0.3
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("Boot:position")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0, 0.1, 0.10047401, 0.1498915, 0.2),
+"transitions": PackedFloat32Array(0.5, 0.5, 1, 0.5, 1),
+"update": 0,
+"values": [Vector2(16, 48.999996), Vector2(16, 92.99999), Vector2(16, 110), Vector2(16, -150.595), Vector2(16, -147.955)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("Boot:scale")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0, 0.10076027, 0.13333333, 0.1498915, 0.20000002),
+"transitions": PackedFloat32Array(0.5, 0.5, 0.5, 1, 1),
+"update": 0,
+"values": [Vector2(0.425, 0.4), Vector2(0.54, 0.45), Vector2(1.13, 0.45), Vector2(0.45, 1.15), Vector2(0.5, 0.5)]
+}
+tracks/2/type = "value"
+tracks/2/imported = false
+tracks/2/enabled = true
+tracks/2/path = NodePath("Boot:material:shader_parameter/right_stretch")
+tracks/2/interp = 1
+tracks/2/loop_wrap = true
+tracks/2/keys = {
+"times": PackedFloat32Array(0, 0.1, 0.2),
+"transitions": PackedFloat32Array(0.5, 2, 1),
+"update": 0,
+"values": [0.0, 0.33200011077000013, -0.1359999114599999]
+}
+tracks/3/type = "value"
+tracks/3/imported = false
+tracks/3/enabled = true
+tracks/3/path = NodePath("Boot:material:shader_parameter/glow_radius")
+tracks/3/interp = 1
+tracks/3/loop_wrap = true
+tracks/3/keys = {
+"times": PackedFloat32Array(0.2, 0.26666668),
+"transitions": PackedFloat32Array(1, 1),
+"update": 0,
+"values": [64.0, 0.0]
+}
+tracks/4/type = "value"
+tracks/4/imported = false
+tracks/4/enabled = true
+tracks/4/path = NodePath("Boot:material:shader_parameter/modulate_color")
+tracks/4/interp = 1
+tracks/4/loop_wrap = true
+tracks/4/keys = {
+"times": PackedFloat32Array(0.17269957, 0.26666668),
+"transitions": PackedFloat32Array(1, 1),
+"update": 0,
+"values": [Color(1, 1, 1, 1), Color(1, 1, 1, 0)]
+}
+tracks/5/type = "value"
+tracks/5/imported = false
+tracks/5/enabled = true
+tracks/5/path = NodePath("Boot:visible")
+tracks/5/interp = 1
+tracks/5/loop_wrap = true
+tracks/5/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 1,
+"values": [true]
+}
+tracks/6/type = "method"
+tracks/6/imported = false
+tracks/6/enabled = true
+tracks/6/path = NodePath(".")
+tracks/6/interp = 1
+tracks/6/loop_wrap = true
+tracks/6/keys = {
+"times": PackedFloat32Array(0.06666667, 0.2),
+"transitions": PackedFloat32Array(1, 1),
+"values": [{
+"args": [],
+"method": &"toggle"
+}, {
+"args": [],
+"method": &"toggle"
+}]
+}
+
+[sub_resource type="Animation" id="Animation_xj1qa"]
+length = 0.001
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("Boot:position")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Vector2(16, -6)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("Boot:scale")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Vector2(1, 1)]
+}
+tracks/2/type = "value"
+tracks/2/imported = false
+tracks/2/enabled = true
+tracks/2/path = NodePath("Boot:material:shader_parameter/right_stretch")
+tracks/2/interp = 1
+tracks/2/loop_wrap = true
+tracks/2/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [1.0170001433075]
+}
+tracks/3/type = "value"
+tracks/3/imported = false
+tracks/3/enabled = true
+tracks/3/path = NodePath("Boot:material:shader_parameter/glow_radius")
+tracks/3/interp = 1
+tracks/3/loop_wrap = true
+tracks/3/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [64.0]
+}
+tracks/4/type = "value"
+tracks/4/imported = false
+tracks/4/enabled = true
+tracks/4/path = NodePath("Boot:material:shader_parameter/modulate_color")
+tracks/4/interp = 1
+tracks/4/loop_wrap = true
+tracks/4/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Color(1, 1, 1, 1)]
+}
+tracks/5/type = "value"
+tracks/5/imported = false
+tracks/5/enabled = true
+tracks/5/path = NodePath("Boot:visible")
+tracks/5/interp = 1
+tracks/5/loop_wrap = true
+tracks/5/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 1,
+"values": [false]
+}
+
+[sub_resource type="AnimationLibrary" id="AnimationLibrary_1e5vd"]
+_data = {
+&"RESET": SubResource("Animation_xj1qa"),
+&"default": SubResource("Animation_bgikk")
+}
+
+[node name="Boot" type="Node2D"]
+scale = Vector2(2, 2)
+script = ExtResource("1_wfhjv")
+
+[node name="Boot" type="Sprite2D" parent="."]
+visible = false
+material = SubResource("ShaderMaterial_ekwal")
+position = Vector2(16, -6)
+rotation = -1.5707964
+texture = ExtResource("3_7amo1")
+
+[node name="Area2D" type="Area2D" parent="Boot"]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Boot/Area2D"]
+position = Vector2(-17.322832, -13.235298)
+scale = Vector2(0.9999999, 1)
+shape = SubResource("RectangleShape2D_k5ps1")
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="."]
+libraries = {
+&"": SubResource("AnimationLibrary_1e5vd")
+}

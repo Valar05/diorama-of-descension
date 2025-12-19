@@ -1,0 +1,40 @@
+[gd_scene load_steps=7 format=3 uid="uid://bwj8gkjpfquio"]
+
+[ext_resource type="Script" uid="uid://b2cw7kbq0wtjp" path="res://scenes/main.gd" id="1_jyhfs"]
+[ext_resource type="PackedScene" uid="uid://dtuisc8mvr83r" path="res://scenes/player.tscn" id="1_o5qli"]
+[ext_resource type="Texture2D" uid="uid://dsul1qgfhhl2k" path="res://sprites/BackgroundHorizontal.png" id="3_jyhfs"]
+[ext_resource type="PackedScene" uid="uid://dxgrisr8frikb" path="res://scenes/Goblin.tscn" id="3_sugp2"]
+[ext_resource type="Script" uid="uid://bxxds1qcvc1cx" path="res://scripts/joystick.gd" id="5_tefeu"]
+[ext_resource type="Texture2D" uid="uid://bgbw52kwex6c1" path="res://sprites/JoystickZones.png" id="6_o6xl0"]
+
+[node name="Main" type="Node2D"]
+script = ExtResource("1_jyhfs")
+enemies = Array[PackedScene]([ExtResource("3_sugp2")])
+
+[node name="BackgroundHorizontal" type="Sprite2D" parent="."]
+z_index = -500
+position = Vector2(968.21875, 451.09378)
+scale = Vector2(1.3017983, 1.4786987)
+texture = ExtResource("3_jyhfs")
+
+[node name="Player" parent="." node_paths=PackedStringArray("joystick") instance=ExtResource("1_o5qli")]
+position = Vector2(960, 540)
+joystick = NodePath("../CanvasGroup/Joystick")
+
+[node name="CanvasGroup" type="CanvasGroup" parent="."]
+
+[node name="Joystick" type="Control" parent="CanvasGroup"]
+layout_mode = 3
+anchors_preset = 0
+offset_left = 244.0
+offset_top = 842.0
+offset_right = 284.0
+offset_bottom = 882.0
+script = ExtResource("5_tefeu")
+max_distance = 200.0
+
+[node name="base" type="Sprite2D" parent="CanvasGroup/Joystick"]
+scale = Vector2(0.33, 0.33)
+texture = ExtResource("6_o6xl0")
+
+[node name="JoystickPip" type="Node2D" parent="CanvasGroup/Joystick/base"]
