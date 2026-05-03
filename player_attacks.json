@@ -54,6 +54,30 @@
         "damage":8,
         "intensity_x": 1.2,
         "intensity_y": 3.5
+    },
+    "heavy_stab":{
+        "name":"HeavyStab",
+        "path":"LHL",
+        "damage":20,
+        "knockback": 2.0,
+        "intensity_x": 2.0,
+        "intensity_y": 2.0
+    },
+    "multi_stab":{
+        "name":"MultiStab",
+        "path":"LLHL",
+        "damage":10,
+        "knockback": 1.5,
+        "intensity_x": 1.5,
+        "intensity_y": 1.5
+    },
+    "cross_slash":{
+        "name":"CrossSlash",
+        "path":"LLLHL",
+        "damage":15,
+        "knockback": 1.7,
+        "intensity_x": 1.7,
+        "intensity_y": 1.7
     }
 
 }

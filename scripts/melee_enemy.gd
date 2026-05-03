@@ -336,6 +336,22 @@ func _physics_process(delta: float) -> void:
 		if hit_react_timer >= hit_react_duration:
 			hit_reacting = false
 			velocity = Vector2.ZERO
+			# Face the player when knockback/hit reaction ends
+			if player and body:
+				var face_dir = (player.global_position - global_position)
+				if abs(face_dir.x) > abs(face_dir.y):
+					body.texture = sprite_right
+					if face_dir.x < 0:
+						last_scale_x_sign = -1.0
+					else:
+						last_scale_x_sign = 1.0
+					body.scale.x = initial_body_scale.x * last_scale_x_sign
+				else:
+					if face_dir.y > 0:
+						body.texture = sprite_front
+					else:
+						body.texture = sprite_back
+					body.scale.x = initial_body_scale.x * 1.0
 		return
 
 	# Elevation handling for launcher hits: visual lift and shadow shrink

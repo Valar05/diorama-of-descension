@@ -9,7 +9,7 @@ extends Node2D
 @export var parry_damage: float = 0.0
 @export var parry_intensity: float = 1.0
 @export var exclude_group = "player"
-var damage: float = 10.0
+@export var damage: float = 10.0
 var active = false
 var hit_targets := []
 @onready var hitbox = $Hitbox

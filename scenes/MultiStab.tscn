@@ -1,0 +1,76 @@
+[gd_scene load_steps=4 format=3 uid="uid://j5ssf5cpvcmu"]
+
+[ext_resource type="PackedScene" uid="uid://crfcamgcqwano" path="res://scenes/Stab.tscn" id="1_k17rk"]
+
+[sub_resource type="Animation" id="Animation_2gt25"]
+resource_name = "default"
+length = 0.5
+step = 0.05
+tracks/0/type = "animation"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("Stab/AnimationPlayer")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"clips": PackedStringArray("default"),
+"times": PackedFloat32Array(0.1)
+}
+tracks/1/type = "animation"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("Stab2/AnimationPlayer")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"clips": PackedStringArray("default"),
+"times": PackedFloat32Array(0)
+}
+tracks/2/type = "animation"
+tracks/2/imported = false
+tracks/2/enabled = true
+tracks/2/path = NodePath("Stab3/AnimationPlayer")
+tracks/2/interp = 1
+tracks/2/loop_wrap = true
+tracks/2/keys = {
+"clips": PackedStringArray("default"),
+"times": PackedFloat32Array(0.05)
+}
+
+[sub_resource type="AnimationLibrary" id="AnimationLibrary_2j5q4"]
+_data = {
+&"default": SubResource("Animation_2gt25")
+}
+
+[node name="MultiStab" type="Node2D"]
+
+[node name="Stab" parent="." instance=ExtResource("1_k17rk")]
+position = Vector2(0, -92)
+scale = Vector2(0.8, 1)
+
+[node name="Boot" parent="Stab" index="0"]
+position = Vector2(0, -249.24364)
+scale = Vector2(0.34, 0.0022151824)
+
+[node name="Stab2" parent="." instance=ExtResource("1_k17rk")]
+position = Vector2(-81.000015, -76)
+rotation = -0.5235988
+scale = Vector2(0.8, 0.9)
+
+[node name="Stab3" parent="." instance=ExtResource("1_k17rk")]
+position = Vector2(53.000008, -86)
+rotation = 0.5235988
+scale = Vector2(0.8, 0.9)
+
+[node name="Boot" parent="Stab3" index="0"]
+position = Vector2(0, -244.50433)
+scale = Vector2(0.34, 0.015880512)
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="."]
+libraries = {
+&"": SubResource("AnimationLibrary_2j5q4")
+}
+
+[editable path="Stab"]
+[editable path="Stab2"]
+[editable path="Stab3"]

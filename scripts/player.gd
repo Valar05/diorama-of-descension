@@ -6,7 +6,10 @@ extends CharacterBody2D
 @export var sprite_right: Texture2D
 @export var sprite_back: Texture2D
 @export var Slash: PackedScene
+@export var Stab: PackedScene
+@export var MultiStab: PackedScene
 @export var health: float = 15.0
+@export var CrossSlash: PackedScene
 @export var damage: float = 10.0
 @export var hyperarmor: float = 0.0
 @export var joystick: Control = null
@@ -23,6 +26,10 @@ var attack_buffer_max = 0.25
 var attack_lockout = false
 var attack_lockout_timer = 0.0
 var attack_lockout_duration = 1.0
+var boot_followup_armed := false
+var boot_followup_use_multi := false
+var consecutive_light_attacks := 0
+var cross_slash_armed := false
 @export var kick_pause_delay := 0.4
 @export var kick_window_max := 0.95
 var kick_pending := false
@@ -105,11 +112,15 @@ var stick_dash_start := Vector2.ZERO
 var stick_dash_total_distance := 0.0
 var stick_dash_timer := 0.0
 var stick_dash_direction := Vector2.ZERO
+var stick_dash_translate := false # whether this stick dash should translate the player
 @export var stick_dash_trigger_fraction := 1.0 # fraction of input-vector length that must move
 @export var stick_dash_trigger_time := 0.03 # seconds window to detect the movement
 @export var stick_dash_trigger_min_mag := 0.35 # require current stick magnitude at/above this to trigger rolling dash
 var stick_last_vector := Vector2.ZERO
 var stick_last_time := 0.0
+
+var last_move_dir_time := -100.0
+var last_dash_dir_time := -100.0
 
 # Hold-to-dash state (separate from slash dash)
 var hold_dash_active := false
@@ -123,6 +134,7 @@ var hold_dash_total_distance := 0.0
 var hold_dash_consumed := false
 @export var hold_dash_threshold := 0.25
 @export var swipe_threshold := 120.0
+@export var swipe_move_threshold := 60.0 # distance (px) at which a touch becomes a swipe (decouples from hold)
 @export var attack_tap_time := 0.2
 @export var swipe_max_time := 0.4
 @export var hold_move_time := 0.15
@@ -131,6 +143,7 @@ var hold_dash_consumed := false
 @export var launcher_tap_window := 0.4 # max time for two-finger press+release to be considered simultaneous
 @export var launcher_press_window := 0.25 # max time between first and second press to be simultaneous-ish
 @export var launcher_buffer_max := 0.6 # how long a buffered launcher remains valid (s)
+@export var launcher_hold_time := 0.35 # seconds to hold a single press to auto-fire launcher
 @export var gesture_cleanup_time := 3.0 # seconds after which stale touch_gestures are pruned
 @export var combo_cancel_time := 0.7 # seconds before attack end when a buffered attack can cancel into the next
 @export var combo_cancel_early_frac := 0.3 # allow cancel early once this fraction of attack_duration has passed
@@ -175,7 +188,9 @@ var _elevation_scale_factor := 1.0
 var _launcher_shadow_base_pos := Vector2.ZERO
 var _launcher_shadow_base_scale := Vector2.ONE
 var _prev_facing_locked := false
-@export var airborne_attack_elevation_add := 25.0
+@export var airborne_attack_elevation_add := 10.0
+@export var airborne_attack_decay_delay := 0.25
+var _elevation_decay_delay_timer := 0.0
 var elevation_bonus := 0.0
 var last_press_index := -1
 var hold_touch_id := -1
@@ -212,6 +227,7 @@ var dash_invulnerable := false
 var facing_preserve_timer := 0.0
 var preserved_facing_dir := Vector2.ZERO
 var last_stick_dir := Vector2.ZERO
+@export var stab_scene: PackedScene = null
 
 func _apply_facing(dir: Vector2) -> void:
 	if not body:
@@ -257,36 +273,58 @@ func _set_moving(val: bool, reason: String = "") -> void:
 func _get_attack_direction() -> Vector2:
 	# Prefer current joystick input direction, fall back to last stick dir,
 	# then fall back to the tap vector if present, otherwise default right.
-	var dir = Vector2.ZERO
+	# Prefer whichever was most recent: last dash direction or movement direction.
+	if last_dash_dir_time > last_move_dir_time:
+		if slash_dash_direction and slash_dash_direction.length() > 0.001:
+			return slash_dash_direction.normalized()
+		if stick_dash_direction and stick_dash_direction.length() > 0.001:
+			return stick_dash_direction.normalized()
+
+	# Movement direction preference: prefer per-frame stick vector, then last stick dir
+	if stick_dir_frame and stick_dir_frame.length() > 0.001:
+		return stick_dir_frame.normalized()
+	if last_stick_dir and last_stick_dir.length() > 0.0:
+		return last_stick_dir.normalized()
+
+	# Fallback to joystick raw input if available
 	if joystick and joystick.has_method("get_input_vector"):
-		dir = joystick.get_input_vector()
+		var dir = joystick.get_input_vector()
 		if dir.length() > 0.0:
 			stick_raw = dir
 			stick_mag = dir.length()
 			stick_dir = dir.normalized()
 			return dir.normalized()
-	if last_stick_dir.length() > 0.0:
-		return last_stick_dir.normalized()
+
+	# Last fallback: tap position or right
 	if tap_position != Vector2.ZERO:
 		var dv = (tap_position - global_position)
 		if dv.length() > 0.0:
 			return dv.normalized()
 	return Vector2.RIGHT
-	# Prefer the canonical per-frame stick vector (set in _process),
-	# then the last stick direction, then the tap vector, otherwise right.
-	if stick_dir_frame and stick_dir_frame.length() > 0.001:
-		return stick_dir_frame.normalized()
-	if last_stick_dir and last_stick_dir.length() > 0.0:
+
+
+func _current_facing_direction() -> Vector2:
+	# Return a unit vector representing the player's current facing direction
+	if body:
+		if body.texture == sprite_right:
+			# X sign of scale indicates left/right facing
+			if body.scale.x < 0.0:
+				return Vector2.LEFT
+			else:
+				return Vector2.RIGHT
+		elif body.texture == sprite_front:
+			return Vector2.DOWN
+		elif body.texture == sprite_back:
+			return Vector2.UP
+	# Fallbacks: prefer last stick direction, then right
+	if last_stick_dir.length() > 0.0:
 		return last_stick_dir.normalized()
-	if tap_position != Vector2.ZERO:
-		var dv = (tap_position - global_position)
-		if dv.length() > 0.0:
-			return dv.normalized()
 	return Vector2.RIGHT
 
 
 func _attack_target_point(dist: float = 60.0) -> Vector2:
-	var d = _get_attack_direction()
+	# Use current facing for canonical attack target point
+	var d = _current_facing_direction()
 	return global_position + d * dist
 
 func _ready():
@@ -465,24 +503,28 @@ func _input(event):
 		var swipe_speed = drag_dist / max(0.001, swipe_elapsed)
 		# Allow swipe if this is a single-touch sequence OR it's from a different touch than the hold-touch
 		var initiating_touch_ok: bool = (event.index >= 0 and (hold_touch_id == -1 or event.index != hold_touch_id))
-		if swipe_elapsed <= swipe_max_time and not g["consumed"] and not hold_dash_active and (drag_dist >= swipe_threshold and swipe_speed >= swipe_min_speed) and (active_touch_ids.size() == 1 and not multi_touch_sequence or initiating_touch_ok):
+		if swipe_elapsed <= swipe_max_time and not g["consumed"] and not hold_dash_active and (drag_dist >= swipe_move_threshold and swipe_speed >= swipe_min_speed) and (active_touch_ids.size() == 1 and not multi_touch_sequence or initiating_touch_ok):
 			# Swipe-to-dash has been replaced by the stick-edge dash mechanic.
 			# Consume the gesture to avoid accidental double-activation, but
 			# do not start the legacy hold-dash.
 			g["consumed"] = true
 			g["state"] = "swiped"
-			# Determine swipe direction: if swipe is predominantly upward, trigger Launcher
+			# A detected swipe should cancel any tap/hold semantics so a hold
+			# does not also trigger. Clear tap state and movement pending.
+			tap_detected = false
+			movement_pending = false
+			# Determine swipe direction
 			var sdir = Vector2.ZERO
 			if drag_dist > 0.0:
 				sdir = drag_vec.normalized()
-			# Upward in screen coordinates: negative Y and greater magnitude than X
-			if abs(sdir.y) > abs(sdir.x) and sdir.y < 0.0:
-					# Cannot start launcher while already elevated
+			# If this swipe started on the right half, treat it as a dodge/parry (dash)
+			if g.has("start_pos") and g["start_pos"].x >= mid_x:
+				# Do not allow while elevated
 				if elevation > 0.0:
 					if debug_movement:
-						print("[input] launcher blocked while elevated")
+						print("[input] right-swipe parry blocked while elevated")
 					return
-				# If attacking, cancel so launcher can occur immediately
+				# If attacking, cancel so dash/parry can occur immediately
 				if attack_active:
 					attack_active = false
 					attack_timer = 0.0
@@ -490,14 +532,17 @@ func _input(event):
 					slash_dash_active = false
 					slash_dash_timer = 0.0
 					velocity = Vector2.ZERO
-					_on_attack_end("interrupted_by_swipe_launcher")
-				# Start Launcher attack using the current movement/attack vector (not the tap)
-				var atk_dir = _get_attack_direction()
-				var dash_target = global_position + atk_dir * 60.0
-				_start_attack(dash_target, "Launcher", 1.0, 100.0, 1.25, 0.25, 1.0)
+					_on_attack_end("interrupted_by_swipe_parry")
+				# Start a stick dash (dodge/parry) in swipe direction
+				if _start_stick_dash(sdir, "touch_parry"):
+					g["consumed"] = true
+					g["state"] = "parried"
+					if debug_movement:
+						print("[input] right-swipe -> started parry/dodge, dir:", sdir)
 			else:
+				# Non-right-side swipe: ignore for launcher (handled elsewhere)
 				if debug_movement:
-					print("[input] swipe-detected but not upward; ignored for launcher")
+					print("[input] swipe-detected (non-right) ignored for launcher/parry")
 		else:
 			# If cumulative drag exceeds the movement threshold, start movement immediately (drag-to-move)
 			# Do not start movement during active attacks; allow only swipe-dash while attacking.
@@ -741,7 +786,7 @@ func _input(event):
 					# compute drag distance for this gesture
 					var drag_dist = g["start_pos"].distance_to(event.position)
 					# apply tap buffering rules similar to previous global logic
-					if not launcher_buffered and not multi_touch_sequence and g["released_duration"] < attack_tap_time and drag_dist < swipe_threshold and (g["released_duration"] < hold_move_time or not movement_pending):
+					if not launcher_buffered and not multi_touch_sequence and g["released_duration"] < attack_tap_time and drag_dist < swipe_move_threshold and (g["released_duration"] < hold_move_time or not movement_pending):
 						if not attack_lockout:
 							# Only buffer a single-finger attack if the gesture began on the right half
 							var allow_attack = false
@@ -785,10 +830,18 @@ func _input(event):
 				touch_gestures.clear()
 				gesture_sequence_indices = []
 
-func _spawn_slash(tap_pos: Vector2, anim_name: String, intensity: float = 1.0, vertical_offset: float = 0.0, target_scale: float = 1.0, tween_dur: float = 0.25, knockback_mult: float = 1.0):
-	if Slash:
-		var slash_instance = Slash.instantiate()
-		slash_instance.damage = damage
+func _spawn_slash(tap_pos: Vector2, anim_name: String, intensity: float = 1.0, vertical_offset: float = 0.0, target_scale: float = 1.0, tween_dur: float = 0.25, knockback_mult: float = 1.0, use_cross_slash: bool = false):
+	var slash_scene: PackedScene = null
+	if use_cross_slash and CrossSlash:
+		slash_scene = CrossSlash
+	elif Slash:
+		slash_scene = Slash
+	else:
+		# fallback load if export slots are empty
+		var path =  "res://scenes/CrossSlash.tscn" if use_cross_slash else "res://scenes/Slash.tscn"
+		slash_scene = load(path)
+	if slash_scene:
+		var slash_instance = slash_scene.instantiate()
 		# mark whether this instance is a launcher so hit targets can respond
 		if anim_name == "Launcher" and slash_instance.has_method("set") == false and slash_instance.has_variable("is_launcher"):
 			slash_instance.is_launcher = true
@@ -807,7 +860,8 @@ func _spawn_slash(tap_pos: Vector2, anim_name: String, intensity: float = 1.0, v
 		# set initial scale then tween to target_scale if scaling requested
 		slash_instance.scale = Vector2.ONE
 		# pass intensity to the slash so it can trigger shake with attack-specific magnitude
-		if slash_instance.has_method("set"):
+		if slash_instance.has_method("set") and not use_cross_slash:
+			slash_instance.set("damage",damage)
 			# set a property if the script exposes it
 			slash_instance.set("attack_intensity", intensity)
 		else:
@@ -825,8 +879,10 @@ func _spawn_slash(tap_pos: Vector2, anim_name: String, intensity: float = 1.0, v
 		if "airborne_attack_elevation_add" in slash_instance:
 			slash_instance.airborne_attack_elevation_add = airborne_attack_elevation_add
 		var slash_anim = slash_instance.get_node_or_null("AnimationPlayer")
+		anim_name = "CrossSlash" if use_cross_slash else anim_name
 		if slash_anim:
 			slash_anim.play(anim_name)
+			print(anim_name)
 		# perform ease-out tweens for vertical movement and scale when requested
 		if vertical_offset != 0.0 or target_scale != 1.0:
 			var tw = slash_instance.create_tween()
@@ -871,10 +927,15 @@ func _on_attack_end(reason: String = "attack_end") -> void:
 		_elevation_timer = 0.0
 		elevation = 0.0
 		elevation_bonus = 0.0
+		# Reset attack combo index when elevation (launcher) ends
+		attack_index = 0
 		# restore collision/hitbox
 		if collision_shape:
 			collision_shape.disabled = _prev_collision_disabled
 		if dash_slash_hitbox:
+			boot_followup_armed = false
+			boot_followup_use_multi = false
+			consecutive_light_attacks = 0
 			dash_slash_hitbox.monitoring = _prev_hitbox_monitoring
 		# restore base position
 		global_position = launcher_base_position
@@ -882,6 +943,9 @@ func _on_attack_end(reason: String = "attack_end") -> void:
 		if body:
 			body.scale = _launcher_base_body_scale
 			# Reset shader stretch back to zero so the sprite returns to normal
+			boot_followup_armed = true
+			boot_followup_use_multi = consecutive_light_attacks >= 2
+			consecutive_light_attacks = 0
 			var _mat = body.get_material()
 			if _mat and _mat is ShaderMaterial:
 				_mat.set_shader_parameter("top_stretch_x", 0.0)
@@ -929,6 +993,10 @@ func _start_attack(dash_target: Vector2, anim_name: String, intensity: float = 1
 		# Do not start launcher while already elevated
 		if elevation > 0.0:
 			return
+		# Reset any decay hold when starting a fresh launcher rise
+		_elevation_decay_delay_timer = 0.0
+		# Launcher is not a tap; reset tap counter
+		consecutive_light_attacks = 0
 		if debug_movement:
 			print("[start_attack] Clearing lingering touch state for Launcher to avoid duplicates")
 		# clear per-touch bookkeeping and any pending buffers to avoid chained launches
@@ -973,14 +1041,32 @@ func _start_attack(dash_target: Vector2, anim_name: String, intensity: float = 1
 		# While airborne, add a small elevation bump on attack start
 		if elevation > 0.0:
 			elevation_bonus += airborne_attack_elevation_add
-	_spawn_slash(dash_target, anim_name, intensity, vertical_offset, target_scale, tween_dur, knockback_mult)
-	# Ensure player faces the attack direction immediately
-	_apply_facing((dash_target - global_position).normalized())
+			# Pause decay for a short window after midair attacks
+			_elevation_decay_delay_timer = airborne_attack_decay_delay
+		# Count taps leading into a potential boot follow-up
+		consecutive_light_attacks = max(0, consecutive_light_attacks) + 1
+	
+	# Determine if cross slash should be used (must be declared before _spawn_slash call)
+	var use_cross_slash = false
+	if cross_slash_armed:
+		use_cross_slash = true
+		cross_slash_armed = false
+		consecutive_light_attacks = 0
+	
+	_spawn_slash(dash_target, anim_name, intensity, vertical_offset, target_scale, tween_dur, knockback_mult, use_cross_slash)
+	# Treat cross slash as a combo finisher: reset index and enforce lockout like end-of-chain
+	if use_cross_slash:
+		attack_index = 0
+		attack_lockout = true
+		attack_lockout_timer = 0.0
+	# Do not change player facing on attack start; keep current facing
 	# Do not perform a movement dash for the launcher animation; launcher is a rooted attack
 	if anim_name != "Launcher":
 		slash_dash_active = true
 		slash_dash_timer = 0.0
 		slash_dash_direction = (dash_target - global_position).normalized()
+		# record slash dash as the most recent dash direction
+		last_dash_dir_time = Time.get_ticks_msec() / 1000.0
 		post_dash_lockout = false
 		post_dash_lockout_timer = 0.0
 	# freeze regular movement while attacking
@@ -1010,6 +1096,85 @@ func _start_attack(dash_target: Vector2, anim_name: String, intensity: float = 1
 		# Launcher is a separate action: do not advance combo nor enforce lockout here.
 		pass
 	attack_buffered = false
+
+
+# Heavy stab follow-up after a boot (LHL path)
+func _start_stab_attack(stab_data: Dictionary = {}):
+	var use_multi := boot_followup_use_multi
+	var stab_scene: PackedScene = null
+	if use_multi:
+		stab_scene = MultiStab
+	else:
+		stab_scene = Stab
+	if stab_scene == null:
+		stab_scene = load("res://scenes/MultiStab.tscn" if use_multi else "res://scenes/Stab.tscn")
+	if stab_scene == null:
+		return
+	var dir = _get_attack_direction()
+	if dir.length() < 0.001:
+		dir = Vector2.RIGHT
+	var dash_target = global_position + dir.normalized() * 60.0
+	var stab_instance = stab_scene.instantiate()
+	add_child(stab_instance)
+	stab_instance.global_position = dash_target
+	stab_instance.rotation = dir.angle() + PI / 2.0
+	stab_instance.z_index = int(z_index) + 10
+	var intensity = 1.0
+	if stab_data.has("intensity_x"):
+		intensity = float(stab_data["intensity_x"])
+	var kb_mult = 1.0
+	if stab_data.has("knockback"):
+		kb_mult = float(stab_data["knockback"])
+	var dmg = damage
+	if stab_data.has("damage"):
+		dmg = float(stab_data["damage"])
+	# Apply stats to the stab instance (boot.gd script compatible)
+	if "attack_intensity" in stab_instance:
+		stab_instance.attack_intensity = intensity
+	if "knockback_mult" in stab_instance:
+		stab_instance.knockback_mult = kb_mult
+	if "knockback_dir" in stab_instance:
+		stab_instance.knockback_dir = dir.normalized()
+	if "damage" in stab_instance:
+		stab_instance.damage = dmg
+	if "hit_targets" in stab_instance:
+		stab_instance.hit_targets.clear()
+	if "is_dash_slash" in stab_instance:
+		stab_instance.is_dash_slash = false
+	if "is_launcher" in stab_instance:
+		stab_instance.is_launcher = false
+	var anim_name = "default"
+	var stab_anim: AnimationPlayer = stab_instance.get_node_or_null("AnimationPlayer")
+	if stab_anim:
+		stab_anim.play(anim_name)
+	# Do not change player facing for stab; preserve current facing
+	# Movement/attack state mirroring normal attacks
+	slash_dash_active = true
+	slash_dash_timer = 0.0
+	slash_dash_direction = dir.normalized()
+	post_dash_lockout = false
+	post_dash_lockout_timer = 0.0
+	dash_invulnerable = false
+	_set_moving(false, "stab_start")
+	movement_pending = false
+	drag_current_pos = Vector2.ZERO
+	tap_detected = false
+	kick_pending = true
+	kick_timer = 0.0
+	kick_ready = false
+	kick_arm_time = Time.get_ticks_msec() / 1000.0
+	kick_active = false
+	velocity = Vector2.ZERO
+	attack_active = true
+	attack_timer = 0.0
+	attack_buffered = false
+	time_since_last_attack = 0.0
+	attack_index = 0
+	boot_followup_armed = false
+	boot_followup_use_multi = false
+	consecutive_light_attacks = 0
+	attack_lockout = true
+	attack_lockout_timer = 0.0
 
 
 func _disable_movement_for(duration: float):
@@ -1050,7 +1215,8 @@ func _process(delta):
 
 	# While airborne, clamp combo index to first two attacks
 	if elevation > 0.0:
-		attack_index = clamp(attack_index, 0, 1)
+		# Wrap between 0 and 1 instead of clamping so midair chains alternate
+		attack_index = max(0, attack_index) % 2
 
 	# Handle attack buffering and combo cancel
 	if debug_movement:
@@ -1102,7 +1268,7 @@ func _process(delta):
 		if (launcher_buffered or attack_buffered) and debug_movement:
 			print("[process] buffered while active -> will wait until attack end:", "attack_timer:", attack_timer, "launcher_buffered:", launcher_buffered, "attack_buffered:", attack_buffered)
 		if attack_timer == 0.0: # Just started attack
-			# Start dash and lockout (use movement direction as dash direction)
+			# Start dash and lockout (use movement/attack direction as dash direction)
 			slash_dash_active = true
 			slash_dash_timer = 0.0
 			slash_dash_direction = _get_attack_direction()
@@ -1125,14 +1291,8 @@ func _process(delta):
 			else:
 				if debug_movement:
 					print("[process] firing launcher_buffered while idle")
-				var dash_target = Vector2.ZERO
-				# Prefer explicit launcher_target (midpoint between touches), fall back to release/tap position
-				if launcher_target != Vector2.ZERO:
-					dash_target = launcher_target
-				else:
-					# No explicit launcher midpoint — target along movement direction
-					var ldir = _get_attack_direction()
-					dash_target = global_position + ldir * 60.0
+				# Launcher should fire in the attack-facing (movement/aiming) direction
+				var dash_target = global_position + _get_attack_direction() * 60.0
 				_start_attack(dash_target, "Launcher", 1.0, 100.0, 1.25, 0.25, 1.0)
 				launcher_target = Vector2.ZERO
 				launcher_buffered = false
@@ -1145,15 +1305,42 @@ func _process(delta):
 			if launcher_buffered:
 				# If a launcher is buffered alongside attack_buffered, prefer the explicit
 				# `launcher_target` midpoint if available.
-				var lt = Vector2.ZERO
-				if launcher_target != Vector2.ZERO:
-					lt = launcher_target
-				else:
-					lt = global_position
+				var lt = global_position + _get_attack_direction() * 60.0
 				_start_attack(lt, "Launcher", 1.0, 100.0, 1.25, 0.25, 1.0)
 				launcher_target = Vector2.ZERO
 				launcher_buffered = false
 				attack_buffered = false
+			# Cross slash after triple taps + boot takes priority over stab follow-up
+			elif cross_slash_armed:
+				var attack_data_cross = null
+				if attack_sequence.size() > 0 and attack_index < attack_sequence.size():
+					attack_data_cross = attack_sequence[attack_index]
+				var anim_name_cross = "SlashLeft"
+				if attack_data_cross and attack_data_cross.has("name"):
+					anim_name_cross = attack_data_cross["name"]
+				var dir_cross = _get_attack_direction()
+				var dash_target_cross = global_position + dir_cross * 60.0
+
+				var intensity_cross = 1.0
+				if attack_data_cross and attack_data_cross.has("intensity"):
+					intensity_cross = float(attack_data_cross["intensity"])
+				var kb_mult_cross = 1.0
+				if attack_data_cross and attack_data_cross.has("knockback"):
+					kb_mult_cross = float(attack_data_cross["knockback"])
+				_start_attack(dash_target_cross, anim_name_cross, intensity_cross, 0.0, 1.0, 0.25, kb_mult_cross)
+				attack_buffered = false
+				attack_buffer_timer = 0.0
+				return
+			# Boot follow-up branch: LHL -> spawn stab
+			elif boot_followup_armed:
+				var stab_data = {}
+				if attacks and attacks.has("heavy_stab"):
+					stab_data = attacks["heavy_stab"]
+				_start_stab_attack(stab_data)
+				boot_followup_armed = false
+				attack_buffered = false
+				attack_buffer_timer = 0.0
+				return
 			# If a kick is ready and grounded, consume the buffered attack and fire kick instead
 			if kick_ready and not launcher_buffered and elevation <= 0.0:
 				_trigger_kick()
@@ -1180,16 +1367,23 @@ func _process(delta):
 	# Kick trigger window: measure pause from attack START; timer runs while pending
 	if kick_pending:
 		var now_k = Time.get_ticks_msec() / 1000.0
-		kick_timer = max(0.0, now_k - kick_arm_time)
-		if kick_timer >= kick_pause_delay:
-			kick_ready = true
-			kick_pending = false
-			kick_active = false
-		elif kick_timer >= kick_window_max:
-			# auto-expire kick window after max duration
-			kick_pending = false
+		if elevation > 0.0:
+			# Pause/disable delayed boot while airborne so it cannot arm mid-air
+			kick_arm_time = now_k
+			kick_timer = 0.0
 			kick_ready = false
 			kick_active = false
+		else:
+			kick_timer = max(0.0, now_k - kick_arm_time)
+			if kick_timer >= kick_pause_delay:
+				kick_ready = true
+				kick_pending = false
+				kick_active = false
+			elif kick_timer >= kick_window_max:
+				# auto-expire kick window after max duration
+				kick_pending = false
+				kick_ready = false
+				kick_active = false
 
 	# Handle attack timer
 	if attack_active:
@@ -1211,6 +1405,10 @@ func _process(delta):
 			launcher_buffer_timer = 0.0
 			launcher_target = Vector2.ZERO
 
+	# Count down decay hold for airborne attacks; only used while elevated
+	if _elevation_decay_delay_timer > 0.0:
+		_elevation_decay_delay_timer = max(0.0, _elevation_decay_delay_timer - delta)
+
 	# Periodic cleanup: remove touch_gestures entries older than gesture_cleanup_time
 	var now_t = Time.get_ticks_msec() / 1000.0
 	var stale_keys := []
@@ -1227,7 +1425,6 @@ func _process(delta):
 
 	# Elevation handling for Launcher: move player up visually and manage invulnerability
 	if elevation_active:
-		_elevation_timer += delta
 		# Tie elevation wave length to the current attack duration so it matches animation.
 		# If mid-air attacks add elevation_bonus, extend descent time so we do not snap down.
 		var total_dur = max(0.001, attack_duration)
@@ -1240,6 +1437,12 @@ func _process(delta):
 			extra_down_time = elevation_bonus / fall_speed
 		var down_time_effective = down_time + extra_down_time
 		var total_time_effective = up_time + down_time_effective
+		# Pause timer advance while holding decay after a midair attack (only during descent phase)
+		var allow_timer_advance := true
+		if _elevation_decay_delay_timer > 0.0 and _elevation_timer >= up_time:
+			allow_timer_advance = false
+		if allow_timer_advance:
+			_elevation_timer += delta
 		if _elevation_timer <= up_time:
 			var t = clamp(_elevation_timer / up_time, 0.0, 1.0)
 			# ease out on rise
@@ -1290,6 +1493,7 @@ func _process(delta):
 			_elevation_timer = 0.0
 			elevation = 0.0
 			elevation_bonus = 0.0
+			_elevation_decay_delay_timer = 0.0
 			# snap back to the launch base so any accumulated elevation offsets do not linger
 			global_position = launcher_base_position
 			# restore collision and hitbox states
@@ -1327,6 +1531,38 @@ func _process(delta):
 			movement_pending = false
 			# remember which touch initiated the hold so other touches can still act
 			hold_touch_id = last_press_index
+		# Hold-to-launcher: if the player holds a single right-half touch for
+		# `launcher_hold_time`, force the Launcher immediately — cancel movement
+		# and any active attack so the launcher always takes priority.
+		if tap_timer >= launcher_hold_time and elevation <= 0.0:
+			# only allow when it's a single active touch (avoid conflicting multi-touch gestures)
+			if active_touch_count == 1 and not multi_touch_sequence:
+				# ensure the press began on the right half of the screen
+				var mid_x_local = get_viewport().get_visible_rect().size.x / 2.0
+				if tap_position.x >= mid_x_local:
+					# If attacking, aggressively cancel so launcher can happen now
+					if attack_active:
+						attack_active = false
+						attack_timer = 0.0
+						attack_buffered = false
+						slash_dash_active = false
+						slash_dash_timer = 0.0
+						velocity = Vector2.ZERO
+						_on_attack_end("interrupted_by_hold_launcher")
+					# Cancel movement and buffers so launcher runs clean
+					movement_pending = false
+					_set_moving(false, "hold_launcher")
+					launcher_buffered = false
+					launcher_buffer_timer = 0.0
+					attack_buffered = false
+					attack_buffer_timer = 0.0
+					# start launcher immediately using attack-facing (movement/aiming)
+					var dash_target = global_position + _get_attack_direction() * 60.0
+					_start_attack(dash_target, "Launcher", 1.0, 100.0, 1.25, 0.25, 1.0)
+					# clear transient tap state to avoid duplicate buffering
+					tap_detected = false
+					tap_timer = 0.0
+					hold_touch_id = -1
 		# Swipe-based dash is handled in _input during drag events; normal hold behavior continues
 
 	# Rolling swipe sampling: sample joystick input when available, otherwise
@@ -1403,10 +1639,9 @@ func _process(delta):
 				attack_timer = 0.0
 				attack_buffered = false
 				_on_attack_end("interrupted_by_stick_swipe")
-			# Attempt to start a centralized dash; `_start_stick_dash` will
-			# return false if lockout prevented it. Only run additional
-			# post-dash effects if the dash actually started.
-			if _start_stick_dash(sdir_use, "stick_swipe"):
+			# Attempt to start a centralized dash; skip joystick-originated
+			# stick-dash so the left-side joystick remains movement-only.
+			if not joystick and _start_stick_dash(sdir_use, "stick_swipe"):
 				# `_start_stick_dash` already configures hitbox/anim/invuln,
 				# so nothing more is required here.
 				pass
@@ -1430,7 +1665,7 @@ func _process(delta):
 		for i in range(swipe_samples.size()):
 			combined_len += float(swipe_samples[i])
 			agg_vec += swipe_vecs[i]
-		var trigger_threshold = swipe_threshold * max(0.0, stick_dash_trigger_fraction)
+		var trigger_threshold = swipe_move_threshold * max(0.0, stick_dash_trigger_fraction)
 		if combined_len >= trigger_threshold:
 			# Decide direction from aggregated recent movement (preferred) or fallback
 			var sdir = Vector2.ZERO
@@ -1480,6 +1715,10 @@ func _process(delta):
 		kick_ready = false
 		kick_timer = 0.0
 		kick_arm_time = 0.0
+		boot_followup_armed = false
+		boot_followup_use_multi = false
+		consecutive_light_attacks = 0
+		cross_slash_armed = false
 		# clamp to avoid repeated resets rapidly
 		time_since_last_attack = 0.0
 
@@ -1540,34 +1779,59 @@ func _process(delta):
 	# Handle stick distance-based dash
 	if stick_dash_active:
 		stick_dash_timer += delta
-		# constant speed to cover total_distance in stick_dash_duration
-		var dash_speed = 0.0
-		if stick_dash_duration > 0.0:
-			dash_speed = stick_dash_total_distance / stick_dash_duration
-		# move directly (collision disabled so we can pass through)
-		var move_now = dash_speed * delta
-		global_position += stick_dash_direction * move_now
-		# apply hits each frame
-		_apply_dash_hits()
-		# check traveled distance
-		var traveled = (global_position - stick_dash_start).length()
-		if traveled >= stick_dash_total_distance or stick_dash_timer >= stick_dash_duration:
-			# end stick dash
-			stick_dash_active = false
-			stick_dash_timer = 0.0
-			# cleanup dash hitbox/collision
-			if dash_slash_hitbox:
-				dash_slash_hitbox.monitoring = false
-				dash_hit_targets.clear()
-			if collision_shape:
-				collision_shape.disabled = false
-			stick_dash_active = false
-			# clear invulnerability
-			dash_invulnerable = false
-			kick_active = false
-			post_dash_lockout = true
-			post_dash_lockout_timer = 0.0
-			return
+		if stick_dash_translate:
+			# constant speed to cover total_distance in stick_dash_duration
+			var dash_speed = 0.0
+			if stick_dash_duration > 0.0:
+				dash_speed = stick_dash_total_distance / stick_dash_duration
+			# move directly (collision disabled so we can pass through)
+			var move_now = dash_speed * delta
+			var traveled = (global_position - stick_dash_start).length()
+			var remaining = max(0.0, stick_dash_total_distance - traveled)
+			var move_use = min(move_now, remaining)
+			if move_use > 0.0:
+				global_position += stick_dash_direction * move_use
+			# apply hits each frame
+			_apply_dash_hits()
+			# check traveled distance
+			traveled = (global_position - stick_dash_start).length()
+			if traveled >= stick_dash_total_distance or stick_dash_timer >= stick_dash_duration:
+				# end stick dash
+				stick_dash_active = false
+				stick_dash_translate = false
+				stick_dash_timer = 0.0
+				# cleanup dash hitbox/collision
+				if dash_slash_hitbox:
+					dash_slash_hitbox.monitoring = false
+					dash_hit_targets.clear()
+				if collision_shape:
+					collision_shape.disabled = false
+				# clear invulnerability
+				dash_invulnerable = false
+				kick_active = false
+				post_dash_lockout = true
+				post_dash_lockout_timer = 0.0
+				return
+		else:
+			# Non-translating stick dash: apply hits and end on timer
+			_apply_dash_hits()
+			if stick_dash_timer >= stick_dash_duration:
+				# end stick dash
+				stick_dash_active = false
+				stick_dash_translate = false
+				stick_dash_timer = 0.0
+				# cleanup dash hitbox/collision
+				if dash_slash_hitbox:
+					dash_slash_hitbox.monitoring = false
+					dash_hit_targets.clear()
+				if collision_shape:
+					collision_shape.disabled = false
+				# clear invulnerability and state
+				dash_invulnerable = false
+				kick_active = false
+				post_dash_lockout = true
+				post_dash_lockout_timer = 0.0
+				return
 	if slash_dash_active:
 		slash_dash_timer += delta
 		# Use stick-driven dash duration when it was triggered from the stick
@@ -1592,6 +1856,7 @@ func _process(delta):
 			if collision_shape:
 				collision_shape.disabled = false
 			stick_dash_active = false
+			stick_dash_translate = false
 			# clear invulnerability now that dash ended early due to block
 			dash_invulnerable = false
 			kick_active = false
@@ -1608,6 +1873,7 @@ func _process(delta):
 			if collision_shape:
 				collision_shape.disabled = false
 			stick_dash_active = false
+			stick_dash_translate = false
 			# dash ended normally: clear invulnerability
 			dash_invulnerable = false
 			kick_active = false
@@ -1652,6 +1918,8 @@ func _process(delta):
 		use_stick = true
 		moving_by_joystick = true
 		last_stick_dir = stick_dir
+		# record movement direction timestamp
+		last_move_dir_time = Time.get_ticks_msec() / 1000.0
 
 		# Re-arm only when magnitude drops below dash_rearm
 		if stick_mag < dash_rearm:
@@ -1739,7 +2007,7 @@ func _process(delta):
 							if slash_dash_direction.length() > 0.0:
 								dir_vec = slash_dash_direction
 							else:
-								dir_vec = _get_attack_direction()
+								dir_vec = _current_facing_direction()
 							facing_source = "attack"
 						elif moving:
 							dir_vec = tap_position - global_position
@@ -1985,7 +2253,7 @@ func _apply_dash_hits() -> void:
 			if hs:
 				hs.start(0.15, 0.2, pint)
 			if target.has_method("take_damage"):
-				target.take_damage(dmg, hit_dir, self, false, kb_mult)
+				target.take_damage(pdmg, hit_dir, self, false, kb_mult)
 				if elevation > 0.0 and "elevation" in target:
 					target.elevation += airborne_attack_elevation_add
 		else:
@@ -2032,7 +2300,7 @@ func _apply_dash_hits() -> void:
 			if hs_b:
 				hs_b.start(0.15, 0.2, pint_b)
 			if targetb.has_method("take_damage"):
-				targetb.take_damage(dmg_b, hit_dir, self, false, kb_mult_b)
+				targetb.take_damage(pdmg_b, hit_dir, self, false, kb_mult_b)
 				# While airborne, add a small elevation bump to targets
 				if elevation > 0.0 and "elevation" in targetb:
 					targetb.elevation += airborne_attack_elevation_add
@@ -2096,6 +2364,18 @@ func _start_stick_dash(dir: Vector2, reason: String = "stick_dash") -> bool:
 	if debug_dash_direction:
 		print("[dash-debug] _start_stick_dash reason:", reason, "dir_in:", dir, "normalized:", dir.normalized(), "global_pos:", global_position)
 
+	# If this dash was triggered from the physical left-stick (reason == "stick_dash"),
+	# treat it as a non-translating, non-animating input: record the direction but
+	# do not start the full dash state (prevents animation and movement lockout).
+	if reason == "stick_dash":
+		# update last move timestamp and last stick dir so attack-facing uses it
+		last_move_dir_time = _now
+		last_stick_dir = dir.normalized()
+		# don't change facing or start any dash state/animation
+		if debug_dash_direction:
+			print("[dash-debug] joystick-origin stick_dash suppressed animation/lockout")
+		return false
+
 	# Cancel attack so dash always works
 	if attack_active:
 		attack_active = false
@@ -2113,6 +2393,20 @@ func _start_stick_dash(dir: Vector2, reason: String = "stick_dash") -> bool:
 	stick_dash_start = global_position
 	stick_dash_direction = dir.normalized()
 	stick_dash_total_distance = run_speed * stick_dash_speed_mult * stick_dash_duration
+	# Decide whether this stick dash should translate the player. Enable for
+	# touch-originated swipes/parries so right-side swipe/dodge behaves like
+	# the old stick dash movement.
+	stick_dash_translate = reason.begins_with("touch") or reason == "stick_swipe"
+	# Record dash direction timestamp so attacks prefer it when recent.
+	last_dash_dir_time = _now
+	# Also update movement direction timestamp so dash becomes the new movement direction
+	last_move_dir_time = _now
+
+	# Update movement/facing so the player appears to have moved/aimed in
+	# the dash direction (mirrors previous behavior where dash changed movement dir).
+	last_stick_dir = stick_dash_direction
+	preserved_facing_dir = stick_dash_direction
+	facing_preserve_timer = facing_preserve_time
 
 	# record dash time for lockout enforcement
 	_last_dash_time = _now
@@ -2152,13 +2446,16 @@ func _trigger_kick() -> void:
 		kick_active = false
 		kick_timer = 0.0
 		kick_arm_time = 0.0
+		boot_followup_armed = false
+		boot_followup_use_multi = false
+		consecutive_light_attacks = 0
+		cross_slash_armed = false
 		return
 	var boot_anim: AnimationPlayer = get_node_or_null("Boot/AnimationPlayer")
 	var boot_node: Node2D = get_node_or_null("Boot")
 	var dir = _get_attack_direction()
 	if dir.length() > 0.0001:
-		# Face and rotate boot like a slash
-		_apply_facing(dir)
+		# Preserve player facing; rotate boot node only
 		if boot_node:
 			boot_node.rotation = dir.angle() + PI / 2.0
 			# Pass kick intensity/damage into the boot script
@@ -2193,3 +2490,8 @@ func _trigger_kick() -> void:
 	kick_timer = 0.0
 	kick_ready = false
 	kick_arm_time = 0.0
+	boot_followup_armed = true
+	boot_followup_use_multi = consecutive_light_attacks >= 2
+	# Arm cross slash if three taps preceded this boot
+	cross_slash_armed = consecutive_light_attacks >= 3
+	consecutive_light_attacks = 0

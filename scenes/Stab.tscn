@@ -37,7 +37,7 @@ length = 0.001
 tracks/0/type = "value"
 tracks/0/imported = false
 tracks/0/enabled = true
-tracks/0/path = NodePath("Stab:position")
+tracks/0/path = NodePath("Boot:position")
 tracks/0/interp = 1
 tracks/0/loop_wrap = true
 tracks/0/keys = {
@@ -49,7 +49,7 @@ tracks/0/keys = {
 tracks/1/type = "value"
 tracks/1/imported = false
 tracks/1/enabled = true
-tracks/1/path = NodePath("Stab:scale")
+tracks/1/path = NodePath("Boot:scale")
 tracks/1/interp = 1
 tracks/1/loop_wrap = true
 tracks/1/keys = {
@@ -61,7 +61,7 @@ tracks/1/keys = {
 tracks/2/type = "value"
 tracks/2/imported = false
 tracks/2/enabled = true
-tracks/2/path = NodePath("Stab:material:shader_parameter/right_stretch")
+tracks/2/path = NodePath("Boot:material:shader_parameter/right_stretch")
 tracks/2/interp = 1
 tracks/2/loop_wrap = true
 tracks/2/keys = {
@@ -73,7 +73,7 @@ tracks/2/keys = {
 tracks/3/type = "value"
 tracks/3/imported = false
 tracks/3/enabled = true
-tracks/3/path = NodePath("Stab:material:shader_parameter/glow_radius")
+tracks/3/path = NodePath("Boot:material:shader_parameter/glow_radius")
 tracks/3/interp = 1
 tracks/3/loop_wrap = true
 tracks/3/keys = {
@@ -85,7 +85,7 @@ tracks/3/keys = {
 tracks/4/type = "value"
 tracks/4/imported = false
 tracks/4/enabled = true
-tracks/4/path = NodePath("Stab:material:shader_parameter/modulate_color")
+tracks/4/path = NodePath("Boot:material:shader_parameter/modulate_color")
 tracks/4/interp = 1
 tracks/4/loop_wrap = true
 tracks/4/keys = {
@@ -101,19 +101,19 @@ length = 0.3
 tracks/0/type = "value"
 tracks/0/imported = false
 tracks/0/enabled = true
-tracks/0/path = NodePath("Stab:position")
+tracks/0/path = NodePath("Boot:position")
 tracks/0/interp = 1
 tracks/0/loop_wrap = true
 tracks/0/keys = {
 "times": PackedFloat32Array(0, 0.1, 0.16666667, 0.3),
 "transitions": PackedFloat32Array(1, 1, 1, 1),
 "update": 0,
-"values": [Vector2(0, 0), Vector2(0, 168.23), Vector2(1.9073486e-06, -96.00003), Vector2(1.9073486e-06, -205)]
+"values": [Vector2(0, -250), Vector2(0, 0), Vector2(0, -250), Vector2(0, -250)]
 }
 tracks/1/type = "value"
 tracks/1/imported = false
 tracks/1/enabled = true
-tracks/1/path = NodePath("Stab:scale")
+tracks/1/path = NodePath("Boot:scale")
 tracks/1/interp = 1
 tracks/1/loop_wrap = true
 tracks/1/keys = {
@@ -125,19 +125,19 @@ tracks/1/keys = {
 tracks/2/type = "value"
 tracks/2/imported = false
 tracks/2/enabled = true
-tracks/2/path = NodePath("Stab:material:shader_parameter/right_stretch")
+tracks/2/path = NodePath("Boot:material:shader_parameter/right_stretch")
 tracks/2/interp = 1
 tracks/2/loop_wrap = true
 tracks/2/keys = {
 "times": PackedFloat32Array(0, 0.1, 0.16666667, 0.3),
 "transitions": PackedFloat32Array(0.5, 1, 0.5, 1),
 "update": 0,
-"values": [0.0, -0.5419999307450001, 9.499999986672947e-08, 0.4750001175624998]
+"values": [0.0, -0.5419999307450001, 9.49999998667295e-08, 0.4750001175624998]
 }
 tracks/3/type = "value"
 tracks/3/imported = false
 tracks/3/enabled = true
-tracks/3/path = NodePath("Stab:material:shader_parameter/glow_radius")
+tracks/3/path = NodePath("Boot:material:shader_parameter/glow_radius")
 tracks/3/interp = 1
 tracks/3/loop_wrap = true
 tracks/3/keys = {
@@ -149,7 +149,7 @@ tracks/3/keys = {
 tracks/4/type = "value"
 tracks/4/imported = false
 tracks/4/enabled = true
-tracks/4/path = NodePath("Stab:material:shader_parameter/modulate_color")
+tracks/4/path = NodePath("Boot:material:shader_parameter/modulate_color")
 tracks/4/interp = 1
 tracks/4/loop_wrap = true
 tracks/4/keys = {
@@ -157,6 +157,23 @@ tracks/4/keys = {
 "transitions": PackedFloat32Array(),
 "update": 0,
 "values": []
+}
+tracks/5/type = "method"
+tracks/5/imported = false
+tracks/5/enabled = true
+tracks/5/path = NodePath(".")
+tracks/5/interp = 1
+tracks/5/loop_wrap = true
+tracks/5/keys = {
+"times": PackedFloat32Array(0.1, 0.2),
+"transitions": PackedFloat32Array(1, 1),
+"values": [{
+"args": [],
+"method": &"toggle"
+}, {
+"args": [],
+"method": &"toggle"
+}]
 }
 
 [sub_resource type="AnimationLibrary" id="AnimationLibrary_1e5vd"]
@@ -168,17 +185,16 @@ _data = {
 [node name="Stab" type="Node2D"]
 script = ExtResource("1_6jb3e")
 
-[node name="Stab" type="Sprite2D" parent="."]
+[node name="Boot" type="Sprite2D" parent="."]
 material = SubResource("ShaderMaterial_tdtra")
-position = Vector2(1.9073486e-06, -205)
+position = Vector2(0, -250)
 rotation = -4.712389
 scale = Vector2(0.34, 1e-05)
 texture = ExtResource("4_y6kqw")
 
-[node name="Area2D" type="Area2D" parent="Stab"]
+[node name="Area2D" type="Area2D" parent="Boot"]
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="Stab/Area2D"]
-visible = false
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Boot/Area2D"]
 position = Vector2(-61.764687, -5.882347)
 scale = Vector2(0.9999996, 0.99999964)
 shape = SubResource("RectangleShape2D_k5ps1")
