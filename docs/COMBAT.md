@@ -32,10 +32,11 @@ Important state groups:
   - 2 hits in the string: `Boot` -> `MultiStab`
   - 3+ hits in the string: `Boot` -> `CrossSlash`
 - The hold threshold is `0.2s` so `Boot` activates intentionally while staying responsive on mobile touch.
+- Releasing after crossing that hold threshold still counts, so late release does not drop the buffered `Boot` branch.
 - If hold is pressed during an active light attack, it buffers the heavy branch.
 - The buffered branch waits for the current light attack to finish, then plays `Boot`.
 - After `Boot`, the stab/cross-slash follow-up stays armed until the next separate tap.
-- The follow-up tap uses `boot_followup_input_window`, separate from the normal light-combo reset.
+- The follow-up tap uses `boot_followup_input_window`, separate from the normal light-combo reset, and accepts a slightly longer tap release than standard light-attack taps.
 
 ### Dash And Meter
 

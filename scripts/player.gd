@@ -166,6 +166,7 @@ var hold_dash_consumed := false
 @export var launcher_buffer_max := 0.6 # how long a buffered launcher remains valid (s)
 @export var launcher_hold_time := 0.2
 @export var boot_followup_input_window := 2.5
+@export var boot_followup_tap_time := 0.35
 @export var gesture_cleanup_time := 3.0 # seconds after which stale touch_gestures are pruned
 @export var combo_cancel_time := 0.7 # seconds before attack end when a buffered attack can cancel into the next
 @export var combo_cancel_early_frac := 0.3 # allow cancel early once this fraction of attack_duration has passed
@@ -557,6 +558,44 @@ func _resolve_hold_combo() -> void:
 		_start_attack(dash_target, "Launcher", 1.0, 100.0, 1.25, 0.25, 1.0)
 		return
 	_trigger_kick(combo_hits)
+
+
+func _should_resolve_hold_combo_on_release(gesture: Dictionary, drag_dist: float, mid_x: float) -> bool:
+	if elevation > 0.0:
+		return false
+	if launcher_buffered or multi_touch_sequence or not tap_detected:
+		return false
+	if drag_dist >= swipe_move_threshold:
+		return false
+	if not gesture.has("released_duration") or float(gesture["released_duration"]) < launcher_hold_time:
+		return false
+	if not gesture.has("start_pos"):
+		return false
+	var start_pos = gesture["start_pos"]
+	if not (start_pos is Vector2):
+		return false
+	return start_pos.x >= mid_x
+
+
+func _should_buffer_attack_on_release(gesture: Dictionary, drag_dist: float, mid_x: float) -> bool:
+	if launcher_buffered or multi_touch_sequence:
+		return false
+	if drag_dist >= swipe_move_threshold:
+		return false
+	if not gesture.has("released_duration") or not gesture.has("start_pos"):
+		return false
+	var start_pos = gesture["start_pos"]
+	if not (start_pos is Vector2) or start_pos.x < mid_x:
+		return false
+	var release_duration := float(gesture["released_duration"])
+	var tap_limit := attack_tap_time
+	if boot_followup_armed:
+		tap_limit = max(tap_limit, boot_followup_tap_time)
+	if release_duration >= tap_limit:
+		return false
+	if not boot_followup_armed and release_duration >= hold_move_time and movement_pending:
+		return false
+	return true
 
 func take_damage(amount: float, dir: Vector2, _hitter: Node) -> void:
 	if death_pending:
@@ -1072,28 +1111,27 @@ func _input(event):
 				if not g["consumed"]:
 					# compute drag distance for this gesture
 					var drag_dist = g["start_pos"].distance_to(event.position)
+					if _should_resolve_hold_combo_on_release(g, drag_dist, mid_x):
+						movement_pending = false
+						_set_moving(false, "hold_combo_release")
+						_resolve_hold_combo()
+						tap_detected = false
+						tap_timer = 0.0
+						hold_touch_id = -1
 					# apply tap buffering rules similar to previous global logic
-					if not launcher_buffered and not multi_touch_sequence and g["released_duration"] < attack_tap_time and drag_dist < swipe_move_threshold and (g["released_duration"] < hold_move_time or not movement_pending):
+					elif _should_buffer_attack_on_release(g, drag_dist, mid_x):
 						if not attack_lockout:
-							# Only buffer a single-finger attack if the gesture began on the right half
-							var allow_attack = false
-							if g.has("start_pos") and g["start_pos"].x >= mid_x:
-								allow_attack = true
-							if allow_attack:
-								# Prevent stacking multiple identical buffered attacks
-								if not attack_buffered:
-									attack_buffered = true
-									attack_buffer_timer = 0.0
-									if debug_movement:
-										print("[input] attack_buffered set idx:", event.index, "dur:", g["released_duration"], "drag_dist:", drag_dist)
-									if debug_touch_state:
-										_dump_touch_state("attack_buffered:set_idx:" + str(event.index))
-								else:
-									if debug_movement:
-										print("[input] attack_buffered already true -> skipping")
+							# Prevent stacking multiple identical buffered attacks
+							if not attack_buffered:
+								attack_buffered = true
+								attack_buffer_timer = 0.0
+								if debug_movement:
+									print("[input] attack_buffered set idx:", event.index, "dur:", g["released_duration"], "drag_dist:", drag_dist, "boot_followup_armed:", boot_followup_armed)
+								if debug_touch_state:
+									_dump_touch_state("attack_buffered:set_idx:" + str(event.index))
 							else:
 								if debug_movement:
-									print("[input] attack ignored (not on right half)")
+									print("[input] attack_buffered already true -> skipping")
 					else:
 						movement_pending = false
 						_set_moving(false, "release_stop")

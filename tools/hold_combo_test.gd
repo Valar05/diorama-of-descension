@@ -219,6 +219,40 @@ func _run_test() -> void:
 	add_child(player)
 	await get_tree().process_frame
 	_reset_player_state(player)
+	player.consecutive_light_attacks = 1
+	player.tap_detected = true
+	player.tap_timer = player.launcher_hold_time - 0.01
+	player.tap_position = Vector2(10000.0, 200.0)
+	player.active_touch_count = 1
+	player.active_touch_ids = [0]
+	player.multi_touch_sequence = false
+	var mid_x: float = player.get_viewport().get_visible_rect().size.x / 2.0
+	var release_hold_ok: bool = player.call("_should_resolve_hold_combo_on_release", {
+		"released_duration": player.launcher_hold_time + 0.01,
+		"start_pos": Vector2(mid_x + 10.0, 200.0)
+	}, 0.0, mid_x)
+	if not release_hold_ok:
+		push_error("[HOLD_COMBO_TEST] fail release_hold_ok=%s tap_detected=%s tap_timer=%s" % [release_hold_ok, player.tap_detected, player.tap_timer])
+		player.queue_free()
+		await get_tree().process_frame
+		get_tree().quit(1)
+		return
+	player.call("_resolve_hold_combo")
+	var release_boot_buffered_ok: bool = player.boot_followup_armed and player.boot_followup_kind == "HeavyStab"
+	if not release_boot_buffered_ok:
+		push_error("[HOLD_COMBO_TEST] fail release_boot_buffered_ok=%s boot_followup_armed=%s kind=%s" % [release_boot_buffered_ok, player.boot_followup_armed, player.boot_followup_kind])
+		player.queue_free()
+		await get_tree().process_frame
+		get_tree().quit(1)
+		return
+
+	player.queue_free()
+	await get_tree().process_frame
+
+	player = player_scene.instantiate()
+	add_child(player)
+	await get_tree().process_frame
+	_reset_player_state(player)
 	var body: Sprite2D = player.get_node_or_null("Sprite2D_body")
 	player.call("_start_attack", player.global_position + Vector2.RIGHT * 60.0, "SlashLeft")
 	player.stick_dir_frame = Vector2.LEFT
@@ -280,6 +314,27 @@ func _run_test() -> void:
 	var live_heavy_ok: bool = live_heavy_window_ok and player.attack_active and _has_named_child(player, "Stab") and not _has_named_child(player, "MultiStab")
 	if not live_heavy_ok:
 		push_error("[HOLD_COMBO_TEST] fail live_heavy_ok=%s live_boot_armed_ok=%s followup_kind=%s elevation_active=%s attack_active=%s" % [live_heavy_ok, live_boot_armed_ok, player.boot_followup_kind, player.elevation_active, player.attack_active])
+		player.queue_free()
+		await get_tree().process_frame
+		get_tree().quit(1)
+		return
+
+	player.queue_free()
+	await get_tree().process_frame
+
+	player = player_scene.instantiate()
+	add_child(player)
+	await get_tree().process_frame
+	_reset_player_state(player)
+	player.consecutive_light_attacks = 1
+	player.call("_resolve_hold_combo")
+	player.call("_process", 0.35)
+	var followup_release_buffer_ok: bool = player.boot_followup_armed and player.call("_should_buffer_attack_on_release", {
+		"released_duration": min(player.boot_followup_tap_time - 0.01, player.boot_followup_input_window),
+		"start_pos": Vector2(player.get_viewport().get_visible_rect().size.x * 0.75, 200.0)
+	}, 0.0, player.get_viewport().get_visible_rect().size.x / 2.0)
+	if not followup_release_buffer_ok:
+		push_error("[HOLD_COMBO_TEST] fail followup_release_buffer_ok=%s boot_followup_armed=%s tap_limit=%s" % [followup_release_buffer_ok, player.boot_followup_armed, player.boot_followup_tap_time])
 		player.queue_free()
 		await get_tree().process_frame
 		get_tree().quit(1)

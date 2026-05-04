@@ -21,9 +21,10 @@ This repo is the Downloads copy that should be used for active work and editor i
   - 2 hits in the string: `Boot` -> `MultiStab`
   - 3+ hits in the string: `Boot` -> `CrossSlash`
 - Hold uses a `0.2s` activation threshold for the heavy branch.
+- Releasing after crossing that threshold still resolves the heavy branch, so late release does not drop `Boot`.
 - Hold during an active light attack buffers the heavy branch until that light attack finishes.
 - `Boot` must get its own beat, then a separate tap is required to fire the stab/cross-slash follow-up.
-- The follow-up tap has its own generous input window after `Boot`.
+- The follow-up tap has its own generous input window after `Boot`, and it tolerates a slightly longer release than normal light-attack taps.
 - Dash has a meter.
 - When the dash meter is full, the next qualifying dash slash deals 2x standard attack damage.
 - That bonus consumes the meter and resets it.

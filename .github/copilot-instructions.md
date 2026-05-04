@@ -15,7 +15,7 @@
 
 ## Verification Routing
 
-- After substantive code changes, prefer the `Test And Docs` agent for focused test execution, regression-test creation, and documentation follow-through.
-- When a change affects documented combat or gameplay behavior, use `Test And Docs` to verify the behavior and update the nearest docs.
-- If a coding task finishes without running the relevant tests or checking affected docs, treat that as incomplete when a focused verification path exists.
-- Keep the default coding flow for implementation, but hand off the verification and documentation phase to `Test And Docs` whenever practical.
+- Before creating a git commit for substantive code changes, prefer the `Test And Docs` agent for focused test execution, regression-test creation, and documentation follow-through.
+- When a change affects documented combat or gameplay behavior, use `Test And Docs` before commit to verify the behavior and update the nearest docs.
+- Do not require `Test And Docs` as an automatic post-edit step during normal implementation flow; reserve that handoff for commit-time verification and documentation checks.
+- If a commit is requested for code changes without relevant tests or docs being checked, treat the commit as incomplete when a focused verification path exists.
