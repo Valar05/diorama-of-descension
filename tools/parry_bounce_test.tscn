@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://parrybouncetest"]
+
+[ext_resource type="Script" path="res://tools/parry_bounce_test.gd" id="1"]
+
+[node name="ParryBounceTest" type="Node"]
+script = ExtResource("1")

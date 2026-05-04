@@ -50,11 +50,16 @@ func _process(_delta):
 				if is_dash_slash and target_parryable:
 					if hs:
 						hs.start(0.10, 0.2, parry_intensity)
+					var parry_dir = knockback_dir
+					if parry_dir.length() < 0.001:
+						parry_dir = Vector2.RIGHT
+					if parent_player and parent_player.has_method("on_parry_success"):
+						var parry_travel_distance: float = 0.0
+						if parent_player.has_method("get_parry_bounce_distance"):
+							parry_travel_distance = float(parent_player.call("get_parry_bounce_distance"))
+						parent_player.call("on_parry_success", parry_dir, parry_intensity, parry_travel_distance)
 					if target.has_method("take_damage"):
-						var dir = knockback_dir
-						if dir.length() < 0.001:
-							dir = Vector2.RIGHT
-						target.take_damage(parry_damage, dir, self, is_launcher, knockback_mult)
+						target.take_damage(parry_damage, parry_dir, self, is_launcher, knockback_mult)
 						if airborne and "elevation" in target:
 							target.elevation += air_bonus
 						if airborne and parent_player and "elevation_bonus" in parent_player:

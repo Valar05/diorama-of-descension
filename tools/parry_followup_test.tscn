@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://dwhxl5b6m5t40"]
+
+[ext_resource type="Script" path="res://tools/parry_followup_test.gd" id="1"]
+
+[node name="ParryFollowupTest" type="Node"]
+script = ExtResource("1")

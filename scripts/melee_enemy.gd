@@ -1,13 +1,20 @@
 extends CharacterBody2D
 
 @export var player : CharacterBody2D = null
-@export var attack_distance = 100.0
+@export var attack_distance = 300.0
 @export var move_speed = 200.0
 @export var sprite_front: Texture2D
 @export var sprite_right: Texture2D
 @export var sprite_back: Texture2D
 @export var health: float = 40.0
+@export_range(0.0, 1.0) var wounded_health_ratio: float = 0.35
 @export var hyperarmor: float = 0.0
+@export var flee_speed_mult: float = 1.15
+@export var flee_stop_distance: float = 24.0
+@export var move_target_debounce: float = 0.18
+@export var move_target_deadzone: float = 24.0
+@export var attack_reentry_delay: float = 1.8
+@export var facing_axis_deadzone: float = 0.75
 
 # Bobbing parameters
 var bob_phase := 0.0
@@ -19,6 +26,8 @@ var body_rest_y := 0.0
 var initial_body_scale := Vector2.ONE
 var initial_shadow_scale := Vector2.ONE
 var last_scale_x_sign := 1.0
+var _facing_lock_remaining := 0.0
+@export var facing_lock_duration: float = 0.12
 
 # Launcher elevation support (when hit by a launcher-type attack)
 @export var launcher_elevation_peak := 150.0
@@ -65,7 +74,7 @@ var backing_distance := 50.0
 var charge_speed := 350.0
 var attack_dash_speed := 600.0
 var attack_extra_distance := 50.0
-var attack_hit_radius := 115.0
+var attack_hit_radius := 135.0
 var attack_damage := 1.0
 var back_start := Vector2.ZERO
 var back_target := Vector2.ZERO
@@ -80,6 +89,17 @@ var attack_target := Vector2.ZERO
 var attack_fail_timer := 0.0
 var attack_fail_duration := 1.0 # seconds before cancelling attack if we can't reach target
 var is_parryable = false
+var max_health: float = 0.0
+var _attack_permission: bool = false
+var _move_target_point: Vector2 = Vector2.ZERO
+var _has_move_target: bool = false
+var _move_target_lock_timer: float = 0.0
+var _queued_move_target: Vector2 = Vector2.ZERO
+var _has_queued_move_target: bool = false
+var _attack_reentry_lock_remaining: float = 0.0
+var _is_fleeing: bool = false
+var _pending_flee: bool = false
+var _flee_target: Vector2 = Vector2.ZERO
 
 @onready var body: Sprite2D = $Sprite2D_body
 @onready var shadow: Sprite2D = $Sprite2D_shadow
@@ -216,12 +236,220 @@ func _play_hurt_shear(hitter: Node) -> void:
 	hurt_tween.tween_property(body, "skew", hurt_base_skew, hit_react_duration).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	hurt_tween.parallel().tween_property(body, "position:x", hurt_base_pos.x, hit_react_duration).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 
+
+func _enemy_should_face_horizontal(vec: Vector2) -> bool:
+	if vec.length() <= 0.001:
+		return true
+	var dir = vec.normalized()
+	var ax = abs(dir.x)
+	var ay = abs(dir.y)
+	if ax >= ay + facing_axis_deadzone:
+		return true
+	if ay >= ax + facing_axis_deadzone:
+		return false
+	return true
+
+
+func _current_facing_key() -> String:
+	if not body or body.texture == null:
+		return ""
+	if body.texture == sprite_right:
+		return "west" if body.scale.x < 0.0 else "east"
+	if body.texture == sprite_front:
+		return "south"
+	if body.texture == sprite_back:
+		return "north"
+	return ""
+
+
+func _desired_facing_key(vec: Vector2) -> String:
+	if vec.length() <= 0.001:
+		return ""
+	var dir = vec.normalized()
+	if _enemy_should_face_horizontal(dir):
+		return "west" if dir.x < 0.0 else "east"
+	return "south" if dir.y > 0.0 else "north"
+
+
+func _apply_facing_from_vector(vec: Vector2) -> void:
+	if not body or vec.length() <= 0.001:
+		return
+	var desired_key = _desired_facing_key(vec)
+	if desired_key == "":
+		return
+	var current_key = _current_facing_key()
+	if desired_key == current_key:
+		return
+	if _facing_lock_remaining > 0.0:
+		return
+	var scale_mag = abs(body.scale.x)
+	if scale_mag <= 0.001:
+		scale_mag = abs(initial_body_scale.x)
+	if desired_key == "west" or desired_key == "east":
+		body.texture = sprite_right
+		last_scale_x_sign = -1.0 if desired_key == "west" else 1.0
+		hit_facing = desired_key
+		body.scale.x = scale_mag * last_scale_x_sign
+	elif desired_key == "south":
+		body.texture = sprite_front
+		last_scale_x_sign = 1.0
+		hit_facing = "south"
+		body.scale.x = scale_mag
+	else:
+		body.texture = sprite_back
+		last_scale_x_sign = 1.0
+		hit_facing = "north"
+		body.scale.x = scale_mag
+	_facing_lock_remaining = facing_lock_duration
+
 func _ready():
+	add_to_group("enemies")
+	max_health = health
 	initial_body_scale = body.scale
 	initial_shadow_scale = shadow.scale
 	hurt_base_pos = body.position
 	hurt_base_skew = body.skew
 	hurt_base_root_scale = scale
+
+
+func set_attack_permission(granted: bool) -> void:
+	_attack_permission = granted and not dead and not _is_fleeing and not _pending_flee
+	if not _attack_permission:
+		force_attack_abort()
+		if attack_state == "idle":
+			is_parryable = false
+
+
+func can_attack_player() -> bool:
+	return not dead and _attack_permission and not _is_fleeing and not _pending_flee and _attack_reentry_lock_remaining <= 0.0 and health > 0.0
+
+
+func can_seek_attack_player() -> bool:
+	return not dead and not _is_fleeing and not _pending_flee and _attack_reentry_lock_remaining <= 0.0 and health > 0.0
+
+
+func is_wounded() -> bool:
+	return not dead and health > 0.0 and health <= max(1.0, max_health) * wounded_health_ratio
+
+
+func is_fleeing() -> bool:
+	return _is_fleeing
+
+
+func is_pending_flee() -> bool:
+	return _pending_flee
+
+
+func is_attacking() -> bool:
+	return attack_state == "backing" or attack_state == "charging" or attack_state == "attacking"
+
+
+func set_target_point(p: Vector2) -> void:
+	if dead or _is_fleeing or _pending_flee:
+		return
+	if not _has_move_target:
+		_move_target_point = p
+		_has_move_target = true
+		_move_target_lock_timer = move_target_debounce
+		_has_queued_move_target = false
+		return
+	if _move_target_lock_timer > 0.0:
+		if _move_target_point.distance_to(p) > move_target_deadzone:
+			_queued_move_target = p
+			_has_queued_move_target = true
+		return
+	_move_target_point = p
+	_has_move_target = true
+	_move_target_lock_timer = move_target_debounce
+	_has_queued_move_target = false
+
+
+func cancel_direct_move() -> void:
+	_has_move_target = false
+	_has_queued_move_target = false
+	_move_target_lock_timer = 0.0
+
+
+func _start_attack_recovery(duration: float = attack_reentry_delay) -> void:
+	_attack_reentry_lock_remaining = max(_attack_reentry_lock_remaining, duration)
+
+
+func _enter_returning_state(anchor: Vector2) -> void:
+	var away_vec = global_position - anchor
+	var away_dir = Vector2.ZERO
+	if away_vec.length() > 0.1:
+		away_dir = away_vec.normalized()
+	else:
+		away_dir = Vector2(1, 0) if randf() > 0.5 else Vector2(-1, 0)
+	return_target = anchor + away_dir * attack_distance
+	attack_state = "returning"
+	cooldown_timer = 0.0
+	velocity = Vector2.ZERO
+	attack_fail_timer = 0.0
+	has_dealt_attack = true
+
+
+func force_attack_abort() -> void:
+	if dead or _is_fleeing or _pending_flee:
+		_attack_permission = false
+		return
+	if attack_state == "backing" or attack_state == "charging" or attack_state == "attacking":
+		_start_attack_recovery()
+		attack_state = "cooldown"
+		cooldown_timer = 0.0
+		attack_fail_timer = 0.0
+		has_dealt_attack = true
+		velocity = Vector2.ZERO
+	is_parryable = false
+	_attack_permission = false
+
+
+func start_flee(flee_target: Vector2) -> void:
+	_pending_flee = false
+	_is_fleeing = true
+	_flee_target = flee_target
+	_attack_permission = false
+	_has_move_target = false
+	_has_queued_move_target = false
+	_move_target_lock_timer = 0.0
+	is_parryable = false
+	if attack_state != "cooldown":
+		attack_state = "cooldown"
+		cooldown_timer = 0.0
+	attack_fail_timer = 0.0
+	has_dealt_attack = true
+	velocity = Vector2.ZERO
+
+
+func _get_move_goal() -> Vector2:
+	if _is_fleeing:
+		return _flee_target
+	if _has_move_target:
+		return _move_target_point
+	if player:
+		return player.global_position
+	return global_position
+
+
+func debug_snapshot() -> Dictionary:
+	return {
+		"name": name,
+		"state": attack_state,
+		"pos": {"x": global_position.x, "y": global_position.y},
+		"vel": {"x": velocity.x, "y": velocity.y},
+		"attack_permission": _attack_permission,
+		"can_attack": can_attack_player(),
+		"can_seek": can_seek_attack_player(),
+		"fleeing": _is_fleeing,
+		"pending_flee": _pending_flee,
+		"wounded": is_wounded(),
+		"attack_reentry_lock": _attack_reentry_lock_remaining,
+		"move_target": {"x": _move_target_point.x, "y": _move_target_point.y} if _has_move_target else null,
+		"queued_move_target": {"x": _queued_move_target.x, "y": _queued_move_target.y} if _has_queued_move_target else null,
+		"flee_target": {"x": _flee_target.x, "y": _flee_target.y} if _is_fleeing else null,
+		"health": health,
+		"max_health": max_health,
+	}
 
 func take_damage(amount: float, dir: Vector2, _hitter: Node, is_launcher: bool = false, knockback_mult: float = 1.0) -> void:
 
@@ -237,6 +465,9 @@ func take_damage(amount: float, dir: Vector2, _hitter: Node, is_launcher: bool =
 		attack_state = "cooldown"
 		cooldown_timer = 0.0
 		has_dealt_attack = true
+		for conductor in get_tree().get_nodes_in_group("ai_conductor"):
+			if conductor != null and conductor.has_method("notify_enemy_died"):
+				conductor.call("notify_enemy_died", self)
 		# If currently elevated, defer disabling collision/hurtbox until after landing
 		if elevation_active:
 			die_on_land = true
@@ -303,29 +534,24 @@ func take_damage(amount: float, dir: Vector2, _hitter: Node, is_launcher: bool =
 		if body:
 			_launcher_initial_body_pos = body.position
 	# Determine facing direction (NESW) towards the hitter
-	if abs(dir.x) > abs(dir.y):
-		if dir.x > 0:
-			hit_facing = "west"
-			body.texture = sprite_right
-			body.scale.x = -abs(body.scale.x)
-		else:
-			hit_facing = "east"
-			body.texture = sprite_right
-			body.scale.x = abs(body.scale.x)
-	else:
-		if dir.y < 0:
-			hit_facing = "south"
-			body.texture = sprite_front
-			body.scale.x = abs(body.scale.x)
-		else:
-			hit_facing = "north"
-			body.texture = sprite_back
-			body.scale.x = abs(body.scale.x)
+	_apply_facing_from_vector(dir)
 	# Restore hurt pose baseline when facing snaps the sprite
 	hurt_base_pos = body.position
 
 
 func _physics_process(delta: float) -> void:
+	if _attack_reentry_lock_remaining > 0.0:
+		_attack_reentry_lock_remaining = max(0.0, _attack_reentry_lock_remaining - delta)
+	if _facing_lock_remaining > 0.0:
+		_facing_lock_remaining = max(0.0, _facing_lock_remaining - delta)
+	if _move_target_lock_timer > 0.0:
+		_move_target_lock_timer = max(0.0, _move_target_lock_timer - delta)
+		if _move_target_lock_timer <= 0.0 and _has_queued_move_target and not _is_fleeing:
+			_move_target_point = _queued_move_target
+			_has_move_target = true
+			_has_queued_move_target = false
+			_move_target_lock_timer = move_target_debounce
+
 	# Hit reaction slide and facing
 	if hit_reacting:
 		hit_react_timer += delta
@@ -339,19 +565,7 @@ func _physics_process(delta: float) -> void:
 			# Face the player when knockback/hit reaction ends
 			if player and body:
 				var face_dir = (player.global_position - global_position)
-				if abs(face_dir.x) > abs(face_dir.y):
-					body.texture = sprite_right
-					if face_dir.x < 0:
-						last_scale_x_sign = -1.0
-					else:
-						last_scale_x_sign = 1.0
-					body.scale.x = initial_body_scale.x * last_scale_x_sign
-				else:
-					if face_dir.y > 0:
-						body.texture = sprite_front
-					else:
-						body.texture = sprite_back
-					body.scale.x = initial_body_scale.x * 1.0
+				_apply_facing_from_vector(face_dir)
 		return
 
 	# Elevation handling for launcher hits: visual lift and shadow shrink
@@ -406,11 +620,11 @@ func _physics_process(delta: float) -> void:
 					computed_y = base_y_scale
 				body.scale.y = computed_y
 				# Debug output: report shader parameter value when enabled
-				if debug_launcher_visual:
-					var local_scale = body.scale
-					var _dbg_global_scale = Vector2.ZERO
-					if body and body.get_global_transform():
-						_dbg_global_scale = body.get_global_transform().get_scale()
+			if debug_launcher_visual:
+				var local_scale = body.scale
+				var _dbg_global_scale = Vector2.ZERO
+				if body and body.get_global_transform():
+					_dbg_global_scale = body.get_global_transform().get_scale()
 					var sh_overall = null
 					var sh_top = null
 					if mat and mat is ShaderMaterial:
@@ -439,17 +653,29 @@ func _physics_process(delta: float) -> void:
 				shadow.scale = _launcher_initial_shadow_scale
 			# continue; do not return: allow normal AI to proceed on same frame
 
+	if _is_fleeing:
+		var to_flee = _flee_target - global_position
+		if to_flee.length() <= flee_stop_distance:
+			velocity = Vector2.ZERO
+			move_and_slide()
+			return
+		velocity = to_flee.normalized() * move_speed * flee_speed_mult
+		move_and_slide()
+		_handle_body_contact()
+		return
+
 	if player:
 		# local helpers used for computing return directions
 		var away_vec := Vector2.ZERO
 		var away_dir := Vector2.ZERO
 		var to_player = player.global_position - global_position
+		var move_goal = _get_move_goal()
 		# Z-index sorting relative to player
 		z_index = 50 if global_position.y > player.global_position.y else -50
 		var dist = to_player.length()
 		if attack_state == "idle":
 			is_parryable = false
-			if dist <= attack_distance:
+			if dist <= attack_distance and _attack_permission:
 				# start backing
 				attack_state = "backing"
 				attack_timer = 0.0
@@ -465,10 +691,18 @@ func _physics_process(delta: float) -> void:
 				back_target = global_position - dir_norm * backing_distance
 				has_dealt_attack = false
 			else:
-				var direction = to_player.normalized()
-				velocity = direction * move_speed
-				move_and_slide()
-				_handle_body_contact()
+				var direction = move_goal - global_position
+				if direction.length() <= 0.1:
+					direction = to_player
+				if direction.length() > 0.1:
+					direction = direction.normalized()
+				var chase_speed = move_speed * 2.0 if _attack_permission else move_speed
+				velocity = direction * chase_speed
+				if _attack_permission:
+					global_position += velocity * delta
+				else:
+					move_and_slide()
+					_handle_body_contact()
 		elif attack_state == "backing":
 			is_parryable = true
 			attack_timer += delta
@@ -477,20 +711,7 @@ func _physics_process(delta: float) -> void:
 			# Face the locked attack target while backing up
 			if player:
 				var face_dir = (attack_target - global_position)
-				if body:
-					if abs(face_dir.x) > abs(face_dir.y):
-						body.texture = sprite_right
-						if face_dir.x < 0:
-							last_scale_x_sign = -1.0
-						else:
-							last_scale_x_sign = 1.0
-						body.scale.x = initial_body_scale.x * last_scale_x_sign
-					else:
-						if face_dir.y > 0:
-							body.texture = sprite_front
-						else:
-							body.texture = sprite_back
-						body.scale.x = initial_body_scale.x * 1.0
+				_apply_facing_from_vector(face_dir)
 			global_position = back_start.lerp(back_target, ease_val)
 			if attack_timer >= backing_duration:
 				attack_state = "charging"
@@ -510,11 +731,15 @@ func _physics_process(delta: float) -> void:
 			# timeout guard: increment fail timer and cancel if exceeded
 			attack_fail_timer += delta
 			if attack_fail_timer >= attack_fail_duration:
-				# cancel attack and go to cooldown
-				attack_state = "cooldown"
-				cooldown_timer = 0.0
-				velocity = Vector2.ZERO
-				has_dealt_attack = true
+				# cancel attack and retreat to pressure distance
+				if player:
+					_enter_returning_state(player.global_position)
+				else:
+					attack_state = "cooldown"
+					cooldown_timer = 0.0
+					velocity = Vector2.ZERO
+					has_dealt_attack = true
+				_start_attack_recovery()
 			else:
 				# move toward charge_target
 				var to_charge = charge_target - global_position
@@ -529,129 +754,119 @@ func _physics_process(delta: float) -> void:
 					# Enemy is considered parryable while in the attacking state
 					is_parryable = true
 		elif attack_state == "attacking":
-			is_parryable = true
-			# timeout guard: increment fail timer and cancel if exceeded
-			attack_fail_timer += delta
-			if attack_fail_timer >= attack_fail_duration:
-				# cancel attack and go to cooldown
-				attack_state = "cooldown"
-				cooldown_timer = 0.0
-				velocity = Vector2.ZERO
-				has_dealt_attack = true
-			else:
-				var dir_to_target = (attack_target - global_position)
-				if dir_to_target.length() > 0.1:
-					velocity = dir_to_target.normalized() * attack_dash_speed
-					move_and_slide()
-					# If the player moves into close range during the dash, immediately hit and end attack
-					if player and not has_dealt_attack and global_position.distance_to(player.global_position) <= attack_hit_radius:
-						if dead:
-							has_dealt_attack = true
-						else:
-							if player and player.has_method("take_damage"):
-								player.take_damage(attack_damage, (player.global_position - global_position).normalized(), self)
-							has_dealt_attack = true
-						# after attack, compute return target (at attack_distance from player's current position) and enter returning state
-						away_vec = global_position - player.global_position
+				is_parryable = true
+				# timeout guard: increment fail timer and cancel if exceeded
+				attack_fail_timer += delta
+				if attack_fail_timer >= attack_fail_duration:
+					# cancel attack and retreat to pressure distance
+					if player:
+						_enter_returning_state(player.global_position)
+					else:
+						attack_state = "cooldown"
+						cooldown_timer = 0.0
+						velocity = Vector2.ZERO
+						has_dealt_attack = true
+				else:
+					var dir_to_target = (attack_target - global_position)
+					if dir_to_target.length() > 0.1:
+						velocity = dir_to_target.normalized() * attack_dash_speed
+						move_and_slide()
+						# If the player moves into close range during the dash, immediately hit and end attack
+						if player and not has_dealt_attack and global_position.distance_to(player.global_position) <= attack_hit_radius:
+							if dead:
+								has_dealt_attack = true
+							else:
+								if player and player.has_method("take_damage"):
+									player.take_damage(attack_damage, (player.global_position - global_position).normalized(), self)
+								for conductor in get_tree().get_nodes_in_group("ai_conductor"):
+									if conductor != null and conductor.has_method("on_player_damaged"):
+										conductor.call("on_player_damaged", self)
+								has_dealt_attack = true
+								_start_attack_recovery()
+							# after attack, compute return target (at attack_distance from player's current position) and enter returning state
+							away_vec = global_position - player.global_position
+							away_dir = Vector2.ZERO
+							if away_vec.length() > 0.1:
+								away_dir = away_vec.normalized()
+							else:
+								away_dir = Vector2(1, 0) if randf() > 0.5 else Vector2(-1, 0)
+							return_target = player.global_position + away_dir * attack_distance
+							attack_state = "returning"
+							cooldown_timer = 0.0
+							velocity = Vector2.ZERO
+							attack_fail_timer = 0.0
+							return
+					# Enemy is parryable for the entirety of the attacking state
+					is_parryable = true
+					# If we've reached near the locked attack target and the player is also near it, deal damage
+					if global_position.distance_to(attack_target) <= attack_hit_radius and not has_dealt_attack:
+						if player and player.global_position.distance_to(attack_target) <= attack_hit_radius:
+							# do not deal damage if this enemy is already dead
+							if dead:
+								has_dealt_attack = true
+							else:
+								if player and player.has_method("take_damage"):
+									player.take_damage(attack_damage, (player.global_position - global_position).normalized(), self)
+								for conductor in get_tree().get_nodes_in_group("ai_conductor"):
+									if conductor != null and conductor.has_method("on_player_damaged"):
+										conductor.call("on_player_damaged", self)
+								has_dealt_attack = true
+								_start_attack_recovery()
+
+						# after attack, compute return target (at attack_distance from locked attack target) and enter returning state
+						away_vec = global_position - attack_target
 						away_dir = Vector2.ZERO
 						if away_vec.length() > 0.1:
 							away_dir = away_vec.normalized()
 						else:
 							away_dir = Vector2(1, 0) if randf() > 0.5 else Vector2(-1, 0)
-						return_target = player.global_position + away_dir * attack_distance
+						return_target = attack_target + away_dir * attack_distance
 						attack_state = "returning"
 						cooldown_timer = 0.0
 						velocity = Vector2.ZERO
-						attack_fail_timer = 0.0
-						return
-				# Enemy is parryable for the entirety of the attacking state
-				is_parryable = true
-				# If we've reached near the locked attack target and the player is also near it, deal damage
-				if global_position.distance_to(attack_target) <= attack_hit_radius and not has_dealt_attack:
-					if player and player.global_position.distance_to(attack_target) <= attack_hit_radius:
-						# do not deal damage if this enemy is already dead
-						if dead:
-							has_dealt_attack = true
-						else:
-							if player and player.has_method("take_damage"):
-								player.take_damage(attack_damage, (player.global_position - global_position).normalized(), self)
-							has_dealt_attack = true
-
-					# after attack, compute return target (at attack_distance from locked attack target) and enter returning state
-					away_vec = global_position - attack_target
-					away_dir = Vector2.ZERO
-					if away_vec.length() > 0.1:
-						away_dir = away_vec.normalized()
-					else:
-						away_dir = Vector2(1, 0) if randf() > 0.5 else Vector2(-1, 0)
-					return_target = attack_target + away_dir * attack_distance
-					attack_state = "returning"
+		elif attack_state == "returning":
+				is_parryable = false
+				var to_return = return_target - global_position
+				var dret = to_return.length()
+				if dret > return_tolerance:
+					# Face the player while returning
+					if player:
+						var face_dir = (player.global_position - global_position)
+						_apply_facing_from_vector(face_dir)
+					velocity = to_return.normalized() * return_speed
+					move_and_slide()
+					_handle_body_contact()
+				else:
+					# reached desired attack-distance position
+					attack_state = "cooldown"
 					cooldown_timer = 0.0
 					velocity = Vector2.ZERO
-		elif attack_state == "returning":
-			is_parryable = false
-			var to_return = return_target - global_position
-			var dret = to_return.length()
-			if dret > return_tolerance:
-				# Face the player while returning
-				if player:
-					var face_dir = (player.global_position - global_position)
-					if body:
-						if abs(face_dir.x) > abs(face_dir.y):
-							body.texture = sprite_right
-							if face_dir.x < 0:
-								last_scale_x_sign = -1.0
-							else:
-								last_scale_x_sign = 1.0
-							body.scale.x = initial_body_scale.x * last_scale_x_sign
-						else:
-							if face_dir.y > 0:
-								body.texture = sprite_front
-							else:
-								body.texture = sprite_back
-							body.scale.x = initial_body_scale.x * 1.0
-				velocity = to_return.normalized() * return_speed
-				move_and_slide()
-				_handle_body_contact()
-			else:
-				# reached desired attack-distance position
-				attack_state = "cooldown"
-				cooldown_timer = 0.0
-				velocity = Vector2.ZERO
 		elif attack_state == "cooldown":
-			is_parryable = false
-			cooldown_timer += delta
-			# During cooldown, still follow the player to maintain attack distance
-			if player:
-				var to_p = player.global_position - global_position
-				var d_p = to_p.length()
-				if d_p > attack_distance:
+				is_parryable = false
+				cooldown_timer += delta
+				# During cooldown, still move toward the conductor's pressure point.
+				var to_p = move_goal - global_position
+				if to_p.length() > 0.1:
 					velocity = to_p.normalized() * move_speed
 					move_and_slide()
 					_handle_body_contact()
 				else:
 					velocity = Vector2.ZERO
-			# After cooldown completes, go to idle (which also behaves to follow at attack distance)
-			if cooldown_timer >= cooldown_duration:
-				attack_state = "idle"
+				# After cooldown completes, go to idle (which also behaves to follow at attack distance)
+				if cooldown_timer >= cooldown_duration:
+					attack_state = "idle"
 
 	# Sprite swapping based on movement direction (only when not in an attack state)
-	if attack_state == "idle":
-		if body:
-			var scale_x_sign = last_scale_x_sign
-			if velocity.length() > 0.1:
-				var dir = velocity.normalized()
-				if abs(dir.x) > abs(dir.y):
-					body.texture = sprite_right
-					scale_x_sign = -1.0 if dir.x < 0 else 1.0
-				else:
-					body.texture = sprite_front if dir.y > 0 else sprite_back
-					scale_x_sign = 1.0
-				last_scale_x_sign = scale_x_sign
-			body.scale.x = initial_body_scale.x * scale_x_sign
-			# Preserve Y-scale if currently elevated (so elevation-driven stretch isn't overridden)
-			if not elevation_active:
-				body.scale.y = initial_body_scale.y
+	if attack_state == "idle" or attack_state == "cooldown":
+			if body:
+				var facing_vec = velocity
+				if facing_vec.length() <= 0.1:
+					facing_vec = _get_move_goal() - global_position
+				if facing_vec.length() > 0.1:
+					_apply_facing_from_vector(facing_vec)
+					# Preserve Y-scale if currently elevated (so elevation-driven stretch isn't overridden)
+					if not elevation_active:
+						body.scale.y = initial_body_scale.y
 
 	# Bobbing based on current velocity
 	var speed_fraction = clamp(velocity.length() / move_speed, 0.0, 1.0)

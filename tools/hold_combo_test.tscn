@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://uwfcgnh7kqk6"]
+
+[ext_resource type="Script" path="res://tools/hold_combo_test.gd" id="1"]
+
+[node name="HoldComboTest" type="Node"]
+script = ExtResource("1")

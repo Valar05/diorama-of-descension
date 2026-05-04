@@ -17,6 +17,10 @@ extends CharacterBody2D
 var attacks = {}
 var attack_sequence = []
 var attack_index = 0
+var dash_meter := 0.0
+@export var dash_meter_max := 1.0
+@export var dash_meter_hit_gain := 0.25
+@export var dash_meter_full_damage_mult := 2.0
 var attack_active = false
 var attack_timer = 0.0
 var attack_duration = 1.0
@@ -28,10 +32,12 @@ var attack_lockout_timer = 0.0
 var attack_lockout_duration = 1.0
 var boot_followup_armed := false
 var boot_followup_use_multi := false
+var boot_followup_timer := 0.0
+var boot_followup_kind := ""
 var consecutive_light_attacks := 0
 var cross_slash_armed := false
-@export var kick_pause_delay := 0.4
-@export var kick_window_max := 0.95
+var hold_combo_buffered := false
+var hold_combo_buffer_hits := 0
 var kick_pending := false
 var kick_timer := 0.0
 var kick_ready := false
@@ -50,6 +56,7 @@ var tap_detected: bool = false
 var movement_pending: bool = false
 var moving: bool = false
 var drag_current_pos: Vector2 = Vector2.ZERO
+var scaled_input_time := 0.0
 @export var debug_movement := false
 @export var debug_touch_state := false
 @export var debug_attack_input := false
@@ -91,7 +98,17 @@ var slash_dash_active := false
 var slash_dash_timer := 0.0
 var slash_dash_duration := 0.07
 var slash_dash_direction := Vector2.ZERO
+var slash_dash_origin_position := Vector2.ZERO
+var slash_dash_course_length := 0.0
 var slash_inst: Node = null
+var parry_bounce_active := false
+var parry_bounce_timer := 0.0
+var parry_bounce_direction := Vector2.ZERO
+var parry_bounce_remaining_distance := 0.0
+var parry_followup_pending := false
+@export var parry_bounce_duration := 0.12
+@export var parry_bounce_immediate_distance := 28.0
+@export var parry_bounce_speed := 300.0
 @export var stick_dash_threshold := 0.9 # fraction of stick radius to trigger dash (last 10%)
 @export var stick_dash_hysteresis := 0.8 # release threshold to re-arm dash
 @export var stick_dash_duration := 0.15
@@ -362,6 +379,164 @@ func _ready():
 func ease_out(t: float) -> float:
 	return t * t
 
+func get_parry_bounce_distance() -> float:
+	return maxf(0.0, slash_dash_course_length)
+
+
+func _set_dash_meter(value: float) -> void:
+	dash_meter = clampf(value, 0.0, dash_meter_max)
+
+
+func _gain_dash_meter(amount: float) -> void:
+	if amount <= 0.0:
+		return
+	_set_dash_meter(dash_meter + amount)
+
+
+func _consume_dash_meter() -> bool:
+	if dash_meter < dash_meter_max - 0.001:
+		return false
+	_set_dash_meter(0.0)
+	return true
+
+
+func _start_parry_followup_attack() -> void:
+	parry_followup_pending = false
+	if attack_sequence.size() <= 4:
+		return
+	var attack_data = attack_sequence[4]
+	var anim_name = "SlashDown"
+	if attack_data and attack_data.has("name"):
+		anim_name = str(attack_data["name"])
+	var intensity = 1.0
+	if attack_data and attack_data.has("intensity"):
+		intensity = float(attack_data["intensity"])
+	var kb_mult = 1.0
+	if attack_data and attack_data.has("knockback"):
+		kb_mult = float(attack_data["knockback"])
+	var follow_dir = _get_attack_direction()
+	if follow_dir.length() < 0.001:
+		follow_dir = _current_facing_direction()
+	if follow_dir.length() < 0.001:
+		follow_dir = Vector2.RIGHT
+	var follow_target = global_position + follow_dir.normalized() * 60.0
+	attack_index = 4
+	_start_attack(follow_target, anim_name, intensity, 0.0, 1.0, 0.25, kb_mult, false, -1.0, 1.0, true)
+
+
+func _hold_combo_followup_kind(combo_hits: int) -> String:
+	if combo_hits >= 3:
+		return "CrossSlash"
+	if combo_hits >= 2:
+		return "MultiStab"
+	if combo_hits >= 1:
+		return "HeavyStab"
+	return ""
+
+
+func _queue_hold_combo_followup(combo_hits: int) -> void:
+	boot_followup_kind = _hold_combo_followup_kind(combo_hits)
+	boot_followup_armed = boot_followup_kind != ""
+	boot_followup_use_multi = combo_hits >= 2
+	cross_slash_armed = combo_hits >= 3
+
+
+func _clear_hold_combo_followup() -> void:
+	boot_followup_armed = false
+	boot_followup_use_multi = false
+	boot_followup_timer = 0.0
+	boot_followup_kind = ""
+	cross_slash_armed = false
+
+
+func _clear_hold_combo_buffer() -> void:
+	hold_combo_buffered = false
+	hold_combo_buffer_hits = 0
+
+
+func _consume_hold_combo_buffer() -> bool:
+	if not hold_combo_buffered:
+		return false
+	var combo_hits: int = max(1, hold_combo_buffer_hits)
+	_clear_hold_combo_buffer()
+	_trigger_kick(combo_hits)
+	return true
+
+
+func _consume_hold_combo_followup() -> void:
+	if not boot_followup_armed:
+		return
+	attack_buffered = false
+	attack_buffer_timer = 0.0
+	launcher_buffered = false
+	launcher_buffer_timer = 0.0
+	var followup_kind := boot_followup_kind
+	boot_followup_armed = false
+	boot_followup_timer = 0.0
+	boot_followup_kind = ""
+	kick_active = false
+	if followup_kind == "CrossSlash":
+		var attack_data := {}
+		if attacks and attacks.has("cross_slash"):
+			attack_data = attacks["cross_slash"]
+		var dir = _get_attack_direction()
+		if dir.length() < 0.001:
+			dir = Vector2.RIGHT
+		var dash_target = global_position + dir.normalized() * 60.0
+		var anim_name = "CrossSlash"
+		var intensity = 1.0
+		var kb_mult = 1.0
+		var base_damage = damage
+		if attack_data.has("intensity_x"):
+			intensity = float(attack_data["intensity_x"])
+		if attack_data.has("knockback"):
+			kb_mult = float(attack_data["knockback"])
+		if attack_data.has("damage"):
+			base_damage = float(attack_data["damage"])
+		_start_attack(dash_target, anim_name, intensity, 0.0, 1.0, 0.25, kb_mult, true, base_damage, 1.0)
+		consecutive_light_attacks = 0
+		return
+	var stab_data := {}
+	if followup_kind == "MultiStab":
+		if attacks and attacks.has("multi_stab"):
+			stab_data = attacks["multi_stab"]
+		boot_followup_use_multi = true
+	else:
+		if attacks and attacks.has("heavy_stab"):
+			stab_data = attacks["heavy_stab"]
+		boot_followup_use_multi = false
+	_start_stab_attack(stab_data)
+
+
+func _resolve_hold_combo() -> void:
+	if elevation > 0.0:
+		return
+	var combo_hits := consecutive_light_attacks
+	var has_combo_depth := combo_hits > 0 or boot_followup_armed or cross_slash_armed
+	if attack_active and combo_hits > 0:
+		hold_combo_buffered = true
+		hold_combo_buffer_hits = combo_hits
+		attack_buffered = false
+		attack_buffer_timer = 0.0
+		launcher_buffered = false
+		launcher_buffer_timer = 0.0
+		return
+	if not has_combo_depth:
+		launcher_buffered = false
+		launcher_buffer_timer = 0.0
+		attack_buffered = false
+		attack_buffer_timer = 0.0
+		kick_pending = false
+		kick_ready = false
+		kick_timer = 0.0
+		kick_arm_time = 0.0
+		_clear_hold_combo_followup()
+		_clear_hold_combo_buffer()
+		var dash_target = global_position + _get_attack_direction() * 60.0
+		_start_attack(dash_target, "Launcher", 1.0, 100.0, 1.25, 0.25, 1.0)
+		return
+	_trigger_kick(combo_hits)
+
 func take_damage(amount: float, dir: Vector2, _hitter: Node) -> void:
 	# If performing the hold-to-dash, ignore damage (invulnerable during this dash)
 	# Ignore damage while in hold dash or stick-driven dash invulnerability
@@ -411,6 +586,55 @@ func take_damage(amount: float, dir: Vector2, _hitter: Node) -> void:
 			body.texture = sprite_back
 		body.scale.x = abs(body.scale.x)
 
+
+func on_parry_success(hit_dir: Vector2, intensity: float = 1.0, travel_distance: float = -1.0) -> void:
+	if parry_bounce_active:
+		return
+	var recoil_dir := -hit_dir
+	if recoil_dir.length() < 0.001:
+		if slash_dash_direction.length() > 0.001:
+			recoil_dir = -slash_dash_direction
+		elif velocity.length() > 0.001:
+			recoil_dir = -velocity
+		else:
+			recoil_dir = Vector2.LEFT if last_scale_x_sign > 0.0 else Vector2.RIGHT
+	recoil_dir = recoil_dir.normalized()
+	parry_bounce_direction = recoil_dir
+	parry_bounce_timer = 0.0
+	parry_bounce_active = true
+	_set_dash_meter(dash_meter_max)
+	parry_followup_pending = true
+	attack_index = 4
+
+	var bounce_distance: float = maxf(parry_bounce_immediate_distance, get_parry_bounce_distance())
+	if travel_distance > 0.0:
+		bounce_distance = maxf(bounce_distance, travel_distance)
+	parry_bounce_remaining_distance = bounce_distance
+
+	slash_dash_active = false
+	slash_dash_timer = 0.0
+	stick_dash_active = false
+	stick_dash_translate = false
+	stick_dash_timer = 0.0
+	hold_dash_active = false
+	hold_dash_timer = 0.0
+	attack_active = false
+	attack_timer = 0.0
+	attack_buffered = false
+	velocity = Vector2.ZERO
+	dash_invulnerable = false
+	post_dash_lockout = true
+	post_dash_lockout_timer = 0.0
+	attack_lockout = true
+	attack_lockout_timer = 0.0
+	movement_pending = false
+	tap_detected = false
+	drag_current_pos = Vector2.ZERO
+	_on_attack_end("parry_bounce")
+	if anim_player:
+		anim_player.stop()
+	_start_parry_followup_attack()
+
 func _input(event):
 	# Allow inputs during post-dash lockout for buffering; block only on attack lockout
 	# Normally block inputs during attack lockout, but allow drag plus all touch events so swipe/dash gestures can finish cleanly
@@ -432,7 +656,7 @@ func _input(event):
 		return
 	if event is InputEventScreenTouch and event.pressed:
 		# start a per-touch gesture record
-		var now_t = Time.get_ticks_msec() / 1000.0
+		var now_t = scaled_input_time
 		touch_gestures[event.index] = {
 			"start_time": now_t,
 			"start_pos": event.position,
@@ -488,7 +712,7 @@ func _input(event):
 		# handle per-touch drag for this gesture
 		if not (event.index in touch_gestures):
 			# initialize a gesture if we somehow missed the press
-			var now_init = Time.get_ticks_msec() / 1000.0
+			var now_init = scaled_input_time
 			touch_gestures[event.index] = {"start_time": now_init, "start_pos": event.position, "cur_pos": event.position, "consumed": false, "state": "pending", "released_duration": 0.0}
 		# update current position for this gesture
 		touch_gestures[event.index]["cur_pos"] = event.position
@@ -499,7 +723,7 @@ func _input(event):
 		var g = touch_gestures[event.index]
 		var drag_vec = g["cur_pos"] - g["start_pos"]
 		var drag_dist = drag_vec.length()
-		var swipe_elapsed = (Time.get_ticks_msec() / 1000.0) - float(g["start_time"])
+		var swipe_elapsed = scaled_input_time - float(g["start_time"])
 		var swipe_speed = drag_dist / max(0.001, swipe_elapsed)
 		# Allow swipe if this is a single-touch sequence OR it's from a different touch than the hold-touch
 		var initiating_touch_ok: bool = (event.index >= 0 and (hold_touch_id == -1 or event.index != hold_touch_id))
@@ -557,7 +781,7 @@ func _input(event):
 				pass
 	elif event is InputEventScreenTouch and !event.pressed:
 		# handle per-touch release
-		var now_t = Time.get_ticks_msec() / 1000.0
+		var now_t = scaled_input_time
 
 		var g = null
 		if event.index in touch_gestures:
@@ -830,7 +1054,7 @@ func _input(event):
 				touch_gestures.clear()
 				gesture_sequence_indices = []
 
-func _spawn_slash(tap_pos: Vector2, anim_name: String, intensity: float = 1.0, vertical_offset: float = 0.0, target_scale: float = 1.0, tween_dur: float = 0.25, knockback_mult: float = 1.0, use_cross_slash: bool = false):
+func _spawn_slash(tap_pos: Vector2, anim_name: String, intensity: float = 1.0, vertical_offset: float = 0.0, target_scale: float = 1.0, tween_dur: float = 0.25, knockback_mult: float = 1.0, use_cross_slash: bool = false, base_damage: float = -1.0, damage_mult: float = 1.0):
 	var slash_scene: PackedScene = null
 	if use_cross_slash and CrossSlash:
 		slash_scene = CrossSlash
@@ -861,7 +1085,11 @@ func _spawn_slash(tap_pos: Vector2, anim_name: String, intensity: float = 1.0, v
 		slash_instance.scale = Vector2.ONE
 		# pass intensity to the slash so it can trigger shake with attack-specific magnitude
 		if slash_instance.has_method("set") and not use_cross_slash:
-			slash_instance.set("damage",damage)
+			var slash_damage := damage
+			if base_damage >= 0.0:
+				slash_damage = base_damage
+			slash_damage *= maxf(0.0, damage_mult)
+			slash_instance.set("damage", slash_damage)
 			# set a property if the script exposes it
 			slash_instance.set("attack_intensity", intensity)
 		else:
@@ -921,6 +1149,8 @@ func _on_attack_end(reason: String = "attack_end") -> void:
 	tap_detected = false
 	tap_timer = 0.0
 	drag_current_pos = Vector2.ZERO
+	if reason != "parry_bounce":
+		parry_followup_pending = false
 	# If an elevation was active (launcher), cancel it and restore states immediately
 	if elevation_active:
 		elevation_active = false
@@ -933,8 +1163,7 @@ func _on_attack_end(reason: String = "attack_end") -> void:
 		if collision_shape:
 			collision_shape.disabled = _prev_collision_disabled
 		if dash_slash_hitbox:
-			boot_followup_armed = false
-			boot_followup_use_multi = false
+			_clear_hold_combo_followup()
 			consecutive_light_attacks = 0
 			dash_slash_hitbox.monitoring = _prev_hitbox_monitoring
 		# restore base position
@@ -943,8 +1172,7 @@ func _on_attack_end(reason: String = "attack_end") -> void:
 		if body:
 			body.scale = _launcher_base_body_scale
 			# Reset shader stretch back to zero so the sprite returns to normal
-			boot_followup_armed = true
-			boot_followup_use_multi = consecutive_light_attacks >= 2
+			_clear_hold_combo_followup()
 			consecutive_light_attacks = 0
 			var _mat = body.get_material()
 			if _mat and _mat is ShaderMaterial:
@@ -980,13 +1208,16 @@ func _on_attack_end(reason: String = "attack_end") -> void:
 		if debug_touch_state:
 			_dump_touch_state("on_attack_end:cleared")
 	kick_active = false
+	slash_dash_course_length = 0.0
+	slash_dash_origin_position = Vector2.ZERO
 
-func _start_attack(dash_target: Vector2, anim_name: String, intensity: float = 1.0, vertical_offset: float = 0.0, target_scale: float = 1.0, tween_dur: float = 0.25, knockback_mult: float = 1.0) -> void:
+func _start_attack(dash_target: Vector2, anim_name: String, intensity: float = 1.0, vertical_offset: float = 0.0, target_scale: float = 1.0, tween_dur: float = 0.25, knockback_mult: float = 1.0, use_cross_slash: bool = false, base_damage: float = -1.0, damage_mult: float = 1.0, suppress_dash: bool = false) -> void:
 	# Centralized attack start logic to keep timing consistent
 	if debug_movement:
 		print("[attack] _start_attack -> anim:", anim_name, "target:", dash_target, "intensity:", intensity, "vert:", vertical_offset)
 	if debug_touch_state:
 		_dump_touch_state("start_attack:" + anim_name)
+	_clear_hold_combo_followup()
 	# Aggressively clear lingering per-touch state when performing a launcher to avoid
 	# leftover gestures causing duplicate buffered actions shortly after.
 	if anim_name == "Launcher":
@@ -1047,26 +1278,36 @@ func _start_attack(dash_target: Vector2, anim_name: String, intensity: float = 1
 		consecutive_light_attacks = max(0, consecutive_light_attacks) + 1
 	
 	# Determine if cross slash should be used (must be declared before _spawn_slash call)
-	var use_cross_slash = false
+	var use_cross_slash_local = use_cross_slash
 	if cross_slash_armed:
-		use_cross_slash = true
+		use_cross_slash_local = true
 		cross_slash_armed = false
 		consecutive_light_attacks = 0
+	var attack_base_damage: float = damage if base_damage < 0.0 else base_damage
+	if anim_name != "Launcher" and attack_sequence.size() > 0 and attack_index < attack_sequence.size():
+		var attack_data_for_damage = attack_sequence[attack_index]
+		if attack_data_for_damage and attack_data_for_damage.has("damage"):
+			attack_base_damage = float(attack_data_for_damage["damage"])
+	var attack_damage_mult := damage_mult
+	if anim_name == "SlashDown" and _consume_dash_meter():
+		attack_damage_mult = dash_meter_full_damage_mult
 	
-	_spawn_slash(dash_target, anim_name, intensity, vertical_offset, target_scale, tween_dur, knockback_mult, use_cross_slash)
+	_spawn_slash(dash_target, anim_name, intensity, vertical_offset, target_scale, tween_dur, knockback_mult, use_cross_slash_local, attack_base_damage, attack_damage_mult)
 	# Treat cross slash as a combo finisher: reset index and enforce lockout like end-of-chain
-	if use_cross_slash:
+	if use_cross_slash_local:
 		attack_index = 0
 		attack_lockout = true
 		attack_lockout_timer = 0.0
 	# Do not change player facing on attack start; keep current facing
 	# Do not perform a movement dash for the launcher animation; launcher is a rooted attack
-	if anim_name != "Launcher":
+	if anim_name != "Launcher" and not suppress_dash:
 		slash_dash_active = true
 		slash_dash_timer = 0.0
 		slash_dash_direction = (dash_target - global_position).normalized()
+		slash_dash_origin_position = global_position
+		slash_dash_course_length = global_position.distance_to(dash_target)
 		# record slash dash as the most recent dash direction
-		last_dash_dir_time = Time.get_ticks_msec() / 1000.0
+		last_dash_dir_time = scaled_input_time
 		post_dash_lockout = false
 		post_dash_lockout_timer = 0.0
 	# freeze regular movement while attacking
@@ -1075,11 +1316,13 @@ func _start_attack(dash_target: Vector2, anim_name: String, intensity: float = 1
 	movement_pending = false
 	drag_current_pos = Vector2.ZERO
 	tap_detected = false
-	# Cancel any pending kick once a new attack begins
-	kick_pending = true
+	# Hold-driven combo branching replaces the old delayed kick timer.
+	kick_pending = false
 	kick_timer = 0.0
 	kick_ready = false
-	kick_arm_time = Time.get_ticks_msec() / 1000.0
+	kick_arm_time = 0.0
+	_clear_hold_combo_followup()
+	_clear_hold_combo_buffer()
 	kick_active = false
 	velocity = Vector2.ZERO
 	attack_active = true
@@ -1152,6 +1395,8 @@ func _start_stab_attack(stab_data: Dictionary = {}):
 	slash_dash_active = true
 	slash_dash_timer = 0.0
 	slash_dash_direction = dir.normalized()
+	slash_dash_origin_position = global_position
+	slash_dash_course_length = global_position.distance_to(dash_target)
 	post_dash_lockout = false
 	post_dash_lockout_timer = 0.0
 	dash_invulnerable = false
@@ -1159,10 +1404,12 @@ func _start_stab_attack(stab_data: Dictionary = {}):
 	movement_pending = false
 	drag_current_pos = Vector2.ZERO
 	tap_detected = false
-	kick_pending = true
+	kick_pending = false
 	kick_timer = 0.0
 	kick_ready = false
-	kick_arm_time = Time.get_ticks_msec() / 1000.0
+	kick_arm_time = 0.0
+	_clear_hold_combo_followup()
+	_clear_hold_combo_buffer()
 	kick_active = false
 	velocity = Vector2.ZERO
 	attack_active = true
@@ -1181,6 +1428,28 @@ func _disable_movement_for(duration: float):
 	movement_disabled_time = duration
 
 func _process(delta):
+	scaled_input_time += delta
+	if parry_bounce_active:
+		parry_bounce_timer += delta
+		var bounce_dir := parry_bounce_direction
+		if bounce_dir.length() < 0.001:
+			bounce_dir = -slash_dash_direction if slash_dash_direction.length() > 0.001 else (Vector2.LEFT if last_scale_x_sign > 0.0 else Vector2.RIGHT)
+		bounce_dir = bounce_dir.normalized()
+		var bounce_step := minf(parry_bounce_speed * delta, parry_bounce_remaining_distance)
+		if bounce_step > 0.0:
+			global_position += bounce_dir * bounce_step
+			parry_bounce_remaining_distance = maxf(0.0, parry_bounce_remaining_distance - bounce_step)
+		velocity = Vector2.ZERO
+		_clamp_to_viewport()
+		if parry_bounce_remaining_distance <= 0.001 or parry_bounce_timer >= parry_bounce_duration:
+			parry_bounce_active = false
+			parry_bounce_timer = 0.0
+			parry_bounce_direction = Vector2.ZERO
+			parry_bounce_remaining_distance = 0.0
+			post_dash_lockout = true
+			post_dash_lockout_timer = 0.0
+		return
+
 	# Hit reaction slide and facing
 	if hit_reacting:
 		hit_react_timer += delta
@@ -1206,7 +1475,7 @@ func _process(delta):
 		attack_lockout_timer += delta
 		if attack_lockout_timer >= attack_lockout_duration:
 			attack_lockout = false
-		# While locked out, cancel any pending/ready kick window
+		# While locked out, cancel any pending legacy kick state.
 		kick_pending = false
 		kick_ready = false
 		kick_active = false
@@ -1236,15 +1505,6 @@ func _process(delta):
 				# consume buffered attack immediately
 				attack_buffered = false
 				attack_buffer_timer = 0.0
-				if kick_ready:
-					# Cancel current attack cleanly and fire kick instead of next combo step
-					slash_dash_active = false
-					slash_dash_timer = 0.0
-					attack_active = false
-					attack_timer = 0.0
-					_on_attack_end("kick_cancel")
-					_trigger_kick()
-					return
 				# start the next attack in sequence using the same logic as idle consumption
 				var attack_data = null
 				if attack_sequence.size() > 0 and attack_index < attack_sequence.size():
@@ -1298,7 +1558,7 @@ func _process(delta):
 				launcher_buffered = false
 				attack_buffered = false
 		
-		if attack_buffered:
+		if attack_buffered and not boot_followup_armed:
 			if debug_movement:
 				print("[process] attack_buffered while idle -> starting attack (launcher_buffered:", launcher_buffered, ")")
 			# launcher takes precedence if buffered
@@ -1331,59 +1591,32 @@ func _process(delta):
 				attack_buffered = false
 				attack_buffer_timer = 0.0
 				return
-			# Boot follow-up branch: LHL -> spawn stab
-			elif boot_followup_armed:
-				var stab_data = {}
-				if attacks and attacks.has("heavy_stab"):
-					stab_data = attacks["heavy_stab"]
-				_start_stab_attack(stab_data)
-				boot_followup_armed = false
-				attack_buffered = false
-				attack_buffer_timer = 0.0
-				return
-			# If a kick is ready and grounded, consume the buffered attack and fire kick instead
-			if kick_ready and not launcher_buffered and elevation <= 0.0:
-				_trigger_kick()
-				attack_buffered = false
-				attack_buffer_timer = 0.0
-			else:
-				# Start attack immediately when buffered and idle
-				var attack_data = null
-				if attack_sequence.size() > 0 and attack_index < attack_sequence.size():
-					attack_data = attack_sequence[attack_index]
-				var anim_name = "SlashLeft"
-				if attack_data and attack_data.has("name"):
-					anim_name = attack_data["name"]
-				var atk_dir = _get_attack_direction()
-				var atk_dash_target = global_position + atk_dir * 60.0
-				var intensity = 1.0
-				if attack_data and attack_data.has("intensity"):
-					intensity = float(attack_data["intensity"])
-				var kb_mult = 1.0
-				if attack_data and attack_data.has("knockback"):
-					kb_mult = float(attack_data["knockback"])
-				_start_attack(atk_dash_target, anim_name, intensity, 0.0, 1.0, 0.25, kb_mult)
+			# Start attack immediately when buffered and idle
+			var attack_data = null
+			if attack_sequence.size() > 0 and attack_index < attack_sequence.size():
+				attack_data = attack_sequence[attack_index]
+			var anim_name = "SlashLeft"
+			if attack_data and attack_data.has("name"):
+				anim_name = attack_data["name"]
+			var atk_dir = _get_attack_direction()
+			var atk_dash_target = global_position + atk_dir * 60.0
+			var intensity = 1.0
+			if attack_data and attack_data.has("intensity"):
+				intensity = float(attack_data["intensity"])
+			var kb_mult = 1.0
+			if attack_data and attack_data.has("knockback"):
+				kb_mult = float(attack_data["knockback"])
+			_start_attack(atk_dash_target, anim_name, intensity, 0.0, 1.0, 0.25, kb_mult)
 
-	# Kick trigger window: measure pause from attack START; timer runs while pending
-	if kick_pending:
-		var now_k = Time.get_ticks_msec() / 1000.0
-		if elevation > 0.0:
-			# Pause/disable delayed boot while airborne so it cannot arm mid-air
-			kick_arm_time = now_k
-			kick_timer = 0.0
-			kick_ready = false
-			kick_active = false
-		else:
-			kick_timer = max(0.0, now_k - kick_arm_time)
-			if kick_timer >= kick_pause_delay:
-				kick_ready = true
-				kick_pending = false
-				kick_active = false
-			elif kick_timer >= kick_window_max:
-				# auto-expire kick window after max duration
-				kick_pending = false
-				kick_ready = false
-				kick_active = false
+	# Hold-driven boot follow-up timer. Once the boot animation has had time to
+	# play, continue into the stored follow-up without requiring another input.
+	if boot_followup_armed:
+		if boot_followup_timer > 0.0:
+			boot_followup_timer = max(0.0, boot_followup_timer - delta)
+		if boot_followup_timer <= 0.0 and not attack_active:
+			_consume_hold_combo_followup()
+	elif hold_combo_buffered and not attack_active:
+		_consume_hold_combo_buffer()
 
 	# Handle attack timer
 	if attack_active:
@@ -1392,6 +1625,8 @@ func _process(delta):
 			attack_active = false
 			attack_timer = 0.0
 			_on_attack_end("attack_timer_end")
+			if _consume_hold_combo_buffer():
+				return
 			# Only reset attack_index if we just finished the last attack in the sequence
 			if attack_index == 0 and attack_lockout:
 				attack_index = 0
@@ -1410,7 +1645,7 @@ func _process(delta):
 		_elevation_decay_delay_timer = max(0.0, _elevation_decay_delay_timer - delta)
 
 	# Periodic cleanup: remove touch_gestures entries older than gesture_cleanup_time
-	var now_t = Time.get_ticks_msec() / 1000.0
+	var now_t = scaled_input_time
 	var stale_keys := []
 	for k in touch_gestures.keys():
 		var tg = touch_gestures[k]
@@ -1531,34 +1766,17 @@ func _process(delta):
 			movement_pending = false
 			# remember which touch initiated the hold so other touches can still act
 			hold_touch_id = last_press_index
-		# Hold-to-launcher: if the player holds a single right-half touch for
-		# `launcher_hold_time`, force the Launcher immediately — cancel movement
-		# and any active attack so the launcher always takes priority.
+		# Hold input owns the heavy branch: neutral hold launches, combo hold
+		# routes into boot follow-ups.
 		if tap_timer >= launcher_hold_time and elevation <= 0.0:
 			# only allow when it's a single active touch (avoid conflicting multi-touch gestures)
 			if active_touch_count == 1 and not multi_touch_sequence:
 				# ensure the press began on the right half of the screen
 				var mid_x_local = get_viewport().get_visible_rect().size.x / 2.0
 				if tap_position.x >= mid_x_local:
-					# If attacking, aggressively cancel so launcher can happen now
-					if attack_active:
-						attack_active = false
-						attack_timer = 0.0
-						attack_buffered = false
-						slash_dash_active = false
-						slash_dash_timer = 0.0
-						velocity = Vector2.ZERO
-						_on_attack_end("interrupted_by_hold_launcher")
-					# Cancel movement and buffers so launcher runs clean
 					movement_pending = false
-					_set_moving(false, "hold_launcher")
-					launcher_buffered = false
-					launcher_buffer_timer = 0.0
-					attack_buffered = false
-					attack_buffer_timer = 0.0
-					# start launcher immediately using attack-facing (movement/aiming)
-					var dash_target = global_position + _get_attack_direction() * 60.0
-					_start_attack(dash_target, "Launcher", 1.0, 100.0, 1.25, 0.25, 1.0)
+					_set_moving(false, "hold_combo")
+					_resolve_hold_combo()
 					# clear transient tap state to avoid duplicate buffering
 					tap_detected = false
 					tap_timer = 0.0
@@ -1570,7 +1788,7 @@ func _process(delta):
 	# to compute per-sample deltas (distance between consecutive stick samples),
 	# and triggers when the sum of those deltas over `stick_dash_trigger_time`
 	# exceeds `stick_dash_trigger_fraction` (measured in stick units 0..1).
-	var now_t_local = Time.get_ticks_msec() / 1000.0
+	var now_t_local = scaled_input_time
 	# Determine current stick vector (direction * magnitude) if joystick present
 	stick_mag = 0.0
 	if joystick and joystick.has_method("get_input_vector"):
@@ -1715,10 +1933,9 @@ func _process(delta):
 		kick_ready = false
 		kick_timer = 0.0
 		kick_arm_time = 0.0
-		boot_followup_armed = false
-		boot_followup_use_multi = false
+		_clear_hold_combo_followup()
+		_clear_hold_combo_buffer()
 		consecutive_light_attacks = 0
-		cross_slash_armed = false
 		# clamp to avoid repeated resets rapidly
 		time_since_last_attack = 0.0
 
@@ -1919,7 +2136,7 @@ func _process(delta):
 		moving_by_joystick = true
 		last_stick_dir = stick_dir
 		# record movement direction timestamp
-		last_move_dir_time = Time.get_ticks_msec() / 1000.0
+		last_move_dir_time = scaled_input_time
 
 		# Re-arm only when magnitude drops below dash_rearm
 		if stick_mag < dash_rearm:
@@ -2215,6 +2432,7 @@ func _apply_dash_hits() -> void:
 		hit_dir = _get_attack_direction()
 	if hit_dir.length() < 0.001:
 		hit_dir = Vector2.RIGHT
+	var dash_bonus_available := dash_meter >= dash_meter_max - 0.001
 	var areas = dash_slash_hitbox.get_overlapping_areas()
 	for a in areas:
 		var target = a.get_parent()
@@ -2252,6 +2470,8 @@ func _apply_dash_hits() -> void:
 			var hs = _ensure_hit_slow()
 			if hs:
 				hs.start(0.15, 0.2, pint)
+			var parry_travel_distance: float = global_position.distance_to(target.global_position)
+			on_parry_success(hit_dir, pint, parry_travel_distance)
 			if target.has_method("take_damage"):
 				target.take_damage(pdmg, hit_dir, self, false, kb_mult)
 				if elevation > 0.0 and "elevation" in target:
@@ -2260,8 +2480,14 @@ func _apply_dash_hits() -> void:
 			var hs2 = _ensure_hit_slow()
 			if hs2:
 				hs2.start(0.15, 0.2, intensity)
+			var applied_dmg: float = dmg
+			if dash_bonus_available:
+				applied_dmg *= dash_meter_full_damage_mult
+				dash_bonus_available = false
+				_set_dash_meter(0.0)
 			if target.has_method("take_damage"):
-				target.take_damage(dmg, hit_dir, self, false, kb_mult)
+				target.take_damage(applied_dmg, hit_dir, self, false, kb_mult)
+			_gain_dash_meter(dash_meter_hit_gain)
 		dash_hit_targets.append(target)
 
 	# also check overlapping bodies (CharacterBody2D etc.)
@@ -2299,6 +2525,8 @@ func _apply_dash_hits() -> void:
 			var hs_b = _ensure_hit_slow()
 			if hs_b:
 				hs_b.start(0.15, 0.2, pint_b)
+			var parry_travel_distance_b: float = global_position.distance_to(targetb.global_position)
+			on_parry_success(hit_dir, pint_b, parry_travel_distance_b)
 			if targetb.has_method("take_damage"):
 				targetb.take_damage(pdmg_b, hit_dir, self, false, kb_mult_b)
 				# While airborne, add a small elevation bump to targets
@@ -2308,8 +2536,14 @@ func _apply_dash_hits() -> void:
 			var hs2_b = _ensure_hit_slow()
 			if hs2_b:
 				hs2_b.start(0.15, 0.2, intensity_b)
+			var applied_dmg_b: float = dmg_b
+			if dash_bonus_available:
+				applied_dmg_b *= dash_meter_full_damage_mult
+				dash_bonus_available = false
+				_set_dash_meter(0.0)
 			if targetb.has_method("take_damage"):
-				targetb.take_damage(dmg_b, hit_dir, self, false, kb_mult_b)
+				targetb.take_damage(applied_dmg_b, hit_dir, self, false, kb_mult_b)
+			_gain_dash_meter(dash_meter_hit_gain)
 		dash_hit_targets.append(targetb)
 
 
@@ -2355,7 +2589,7 @@ func _start_stick_dash(dir: Vector2, reason: String = "stick_dash") -> bool:
 		velocity = Vector2.ZERO
 
 	# Dash lockout: prevent starting a new dash if within `dash_lockout_time` seconds
-	var _now = Time.get_ticks_msec() / 1000.0
+	var _now = scaled_input_time
 	if _now - _last_dash_time < dash_lockout_time:
 		if debug_dash_direction:
 			print("[dash-debug] dash locked out - time_since_last:", _now - _last_dash_time, "threshold:", dash_lockout_time)
@@ -2437,8 +2671,11 @@ func _start_stick_dash(dir: Vector2, reason: String = "stick_dash") -> bool:
 	return true
 
 
-# Kick playback after a pause between attacks
-func _trigger_kick() -> void:
+# Kick playback after a hold-driven combo branch
+func _trigger_kick(combo_hits: int = -1) -> void:
+	if combo_hits < 0:
+		combo_hits = max(0, consecutive_light_attacks)
+	_clear_hold_combo_buffer()
 	# Block boot playback while airborne; fall back to normal combo handling
 	if elevation > 0.0:
 		kick_pending = false
@@ -2448,6 +2685,8 @@ func _trigger_kick() -> void:
 		kick_arm_time = 0.0
 		boot_followup_armed = false
 		boot_followup_use_multi = false
+		boot_followup_timer = 0.0
+		boot_followup_kind = ""
 		consecutive_light_attacks = 0
 		cross_slash_armed = false
 		return
@@ -2483,15 +2722,19 @@ func _trigger_kick() -> void:
 		kick_active = true
 	if boot_anim:
 		boot_anim.play("default")
+		boot_followup_timer = max(boot_anim.current_animation_length, 0.3)
+	else:
+		boot_followup_timer = 0.3
 	# Trigger a screen shake similar to an attack hit
 	if debug_attack_input:
-		print("[kick] triggered after pause -> dir:", dir)
+		print("[kick] triggered after hold -> dir:", dir, "combo_hits:", combo_hits)
 	kick_pending = false
 	kick_timer = 0.0
 	kick_ready = false
 	kick_arm_time = 0.0
-	boot_followup_armed = true
-	boot_followup_use_multi = consecutive_light_attacks >= 2
-	# Arm cross slash if three taps preceded this boot
-	cross_slash_armed = consecutive_light_attacks >= 3
+	attack_buffered = false
+	attack_buffer_timer = 0.0
+	launcher_buffered = false
+	launcher_buffer_timer = 0.0
+	_queue_hold_combo_followup(combo_hits)
 	consecutive_light_attacks = 0
