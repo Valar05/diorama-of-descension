@@ -2,6 +2,7 @@ extends CharacterBody2D
 
 @export var player : CharacterBody2D = null
 @export var attack_distance = 300.0
+@export var support_min_distance: float = 420.0
 @export var move_speed = 200.0
 @export var sprite_front: Texture2D
 @export var sprite_right: Texture2D
@@ -15,6 +16,8 @@ extends CharacterBody2D
 @export var move_target_deadzone: float = 24.0
 @export var attack_reentry_delay: float = 1.8
 @export var facing_axis_deadzone: float = 0.75
+@export var support_distance_hysteresis: float = 48.0
+@export var move_direction_debounce: float = 0.22
 
 # Bobbing parameters
 var bob_phase := 0.0
@@ -100,6 +103,10 @@ var _attack_reentry_lock_remaining: float = 0.0
 var _is_fleeing: bool = false
 var _pending_flee: bool = false
 var _flee_target: Vector2 = Vector2.ZERO
+var _last_move_direction: Vector2 = Vector2.RIGHT
+var _support_escape_direction: Vector2 = Vector2.RIGHT
+var _support_escape_active: bool = false
+var _move_direction_lock_timer: float = 0.0
 
 @onready var body: Sprite2D = $Sprite2D_body
 @onready var shadow: Sprite2D = $Sprite2D_shadow
@@ -381,7 +388,7 @@ func _enter_returning_state(anchor: Vector2) -> void:
 		away_dir = away_vec.normalized()
 	else:
 		away_dir = Vector2(1, 0) if randf() > 0.5 else Vector2(-1, 0)
-	return_target = anchor + away_dir * attack_distance
+	return_target = anchor + away_dir * max(float(attack_distance), support_min_distance)
 	attack_state = "returning"
 	cooldown_timer = 0.0
 	velocity = Vector2.ZERO
@@ -429,6 +436,37 @@ func _get_move_goal() -> Vector2:
 	if player:
 		return player.global_position
 	return global_position
+
+
+func _get_support_escape_direction(dist: float) -> Vector2:
+	if dist >= support_min_distance + support_distance_hysteresis:
+		_support_escape_active = false
+	var away := Vector2.ZERO
+	if player:
+		away = global_position - player.global_position
+	if away.length() > 0.1:
+		_support_escape_direction = away.normalized()
+		_support_escape_active = true
+	elif _support_escape_active and _support_escape_direction.length() > 0.1:
+		pass
+	elif _last_move_direction.length() > 0.1:
+		_support_escape_direction = _last_move_direction.normalized()
+		_support_escape_active = true
+	else:
+		_support_escape_direction = Vector2.RIGHT
+		_support_escape_active = true
+	return _support_escape_direction
+
+
+func _debounce_move_direction(desired: Vector2, delta: float) -> Vector2:
+	if desired.length() <= 0.1:
+		return desired
+	var direction := desired.normalized()
+	if _move_direction_lock_timer > 0.0 and _last_move_direction.length() > 0.1 and direction.dot(_last_move_direction) < -0.35:
+		return _last_move_direction
+	_last_move_direction = direction
+	_move_direction_lock_timer = move_direction_debounce
+	return direction
 
 
 func debug_snapshot() -> Dictionary:
@@ -551,6 +589,8 @@ func _physics_process(delta: float) -> void:
 			_has_move_target = true
 			_has_queued_move_target = false
 			_move_target_lock_timer = move_target_debounce
+	if _move_direction_lock_timer > 0.0:
+		_move_direction_lock_timer = max(0.0, _move_direction_lock_timer - delta)
 
 	# Hit reaction slide and facing
 	if hit_reacting:
@@ -692,11 +732,13 @@ func _physics_process(delta: float) -> void:
 				has_dealt_attack = false
 			else:
 				var direction = move_goal - global_position
+				if not _attack_permission and dist < support_min_distance:
+					direction = _get_support_escape_direction(dist)
 				if direction.length() <= 0.1:
-					direction = to_player
+					direction = _get_support_escape_direction(dist) if not _attack_permission and dist < support_min_distance else to_player
 				if direction.length() > 0.1:
-					direction = direction.normalized()
-				var chase_speed = move_speed * 2.0 if _attack_permission else move_speed
+					direction = _debounce_move_direction(direction, delta)
+				var chase_speed = move_speed * 2.0 if _attack_permission else move_speed * (1.25 if dist < support_min_distance else 1.0)
 				velocity = direction * chase_speed
 				if _attack_permission:
 					global_position += velocity * delta
@@ -790,7 +832,7 @@ func _physics_process(delta: float) -> void:
 								away_dir = away_vec.normalized()
 							else:
 								away_dir = Vector2(1, 0) if randf() > 0.5 else Vector2(-1, 0)
-							return_target = player.global_position + away_dir * attack_distance
+							return_target = player.global_position + away_dir * max(float(attack_distance), support_min_distance)
 							attack_state = "returning"
 							cooldown_timer = 0.0
 							velocity = Vector2.ZERO
@@ -820,7 +862,7 @@ func _physics_process(delta: float) -> void:
 							away_dir = away_vec.normalized()
 						else:
 							away_dir = Vector2(1, 0) if randf() > 0.5 else Vector2(-1, 0)
-						return_target = attack_target + away_dir * attack_distance
+						return_target = attack_target + away_dir * max(float(attack_distance), support_min_distance)
 						attack_state = "returning"
 						cooldown_timer = 0.0
 						velocity = Vector2.ZERO
@@ -846,8 +888,10 @@ func _physics_process(delta: float) -> void:
 				cooldown_timer += delta
 				# During cooldown, still move toward the conductor's pressure point.
 				var to_p = move_goal - global_position
+				if dist < support_min_distance:
+					to_p = _get_support_escape_direction(dist)
 				if to_p.length() > 0.1:
-					velocity = to_p.normalized() * move_speed
+					velocity = _debounce_move_direction(to_p, delta) * move_speed * (1.25 if dist < support_min_distance else 1.0)
 					move_and_slide()
 					_handle_body_contact()
 				else:

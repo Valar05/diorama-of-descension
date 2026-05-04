@@ -20,8 +20,10 @@ This repo is the Downloads copy that should be used for active work and editor i
   - 1 hit in the string: `Boot` -> `HeavyStab`
   - 2 hits in the string: `Boot` -> `MultiStab`
   - 3+ hits in the string: `Boot` -> `CrossSlash`
+- Hold uses a `0.2s` activation threshold for the heavy branch.
 - Hold during an active light attack buffers the heavy branch until that light attack finishes.
-- `Boot` must get its own beat before the stab/cross-slash follow-up fires.
+- `Boot` must get its own beat, then a separate tap is required to fire the stab/cross-slash follow-up.
+- The follow-up tap has its own generous input window after `Boot`.
 - Dash has a meter.
 - When the dash meter is full, the next qualifying dash slash deals 2x standard attack damage.
 - That bonus consumes the meter and resets it.
@@ -65,6 +67,7 @@ Use these from the Downloads copy:
 ```sh
 sh tools/smoke_test_launch.sh
 sh tools/hold_combo_test.sh
+sh tools/player_death_test.sh
 sh tools/parry_bounce_test.sh
 sh tools/parry_followup_test.sh
 sh tools/enemy_facing_test.sh

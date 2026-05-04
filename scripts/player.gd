@@ -13,10 +13,12 @@ extends CharacterBody2D
 @export var damage: float = 10.0
 @export var hyperarmor: float = 0.0
 @export var joystick: Control = null
+@export var reload_on_death: bool = true
 
 var attacks = {}
 var attack_sequence = []
 var attack_index = 0
+var death_pending: bool = false
 var dash_meter := 0.0
 @export var dash_meter_max := 1.0
 @export var dash_meter_hit_gain := 0.25
@@ -33,6 +35,7 @@ var attack_lockout_duration = 1.0
 var boot_followup_armed := false
 var boot_followup_use_multi := false
 var boot_followup_timer := 0.0
+var boot_followup_input_timer := 0.0
 var boot_followup_kind := ""
 var consecutive_light_attacks := 0
 var cross_slash_armed := false
@@ -98,6 +101,7 @@ var slash_dash_active := false
 var slash_dash_timer := 0.0
 var slash_dash_duration := 0.07
 var slash_dash_direction := Vector2.ZERO
+var attack_facing_direction := Vector2.ZERO
 var slash_dash_origin_position := Vector2.ZERO
 var slash_dash_course_length := 0.0
 var slash_inst: Node = null
@@ -160,7 +164,8 @@ var hold_dash_consumed := false
 @export var launcher_tap_window := 0.4 # max time for two-finger press+release to be considered simultaneous
 @export var launcher_press_window := 0.25 # max time between first and second press to be simultaneous-ish
 @export var launcher_buffer_max := 0.6 # how long a buffered launcher remains valid (s)
-@export var launcher_hold_time := 0.35 # seconds to hold a single press to auto-fire launcher
+@export var launcher_hold_time := 0.2
+@export var boot_followup_input_window := 2.5
 @export var gesture_cleanup_time := 3.0 # seconds after which stale touch_gestures are pruned
 @export var combo_cancel_time := 0.7 # seconds before attack end when a buffered attack can cancel into the next
 @export var combo_cancel_early_frac := 0.3 # allow cancel early once this fraction of attack_duration has passed
@@ -339,10 +344,23 @@ func _current_facing_direction() -> Vector2:
 	return Vector2.RIGHT
 
 
+func _set_attack_facing_direction(dir: Vector2) -> void:
+	if dir.length() <= 0.001:
+		return
+	attack_facing_direction = dir.normalized()
+	_apply_facing(attack_facing_direction)
+
+
 func _attack_target_point(dist: float = 60.0) -> Vector2:
 	# Use current facing for canonical attack target point
 	var d = _current_facing_direction()
 	return global_position + d * dist
+
+
+func _can_cancel_attack_now() -> bool:
+	var early_threshold: float = float(attack_duration) * combo_cancel_early_frac
+	return attack_timer >= max(0.0, attack_duration - combo_cancel_time) or attack_timer >= early_threshold
+
 
 func _ready():
 	# Load attacks from JSON
@@ -439,12 +457,14 @@ func _queue_hold_combo_followup(combo_hits: int) -> void:
 	boot_followup_armed = boot_followup_kind != ""
 	boot_followup_use_multi = combo_hits >= 2
 	cross_slash_armed = combo_hits >= 3
+	boot_followup_input_timer = boot_followup_input_window
 
 
 func _clear_hold_combo_followup() -> void:
 	boot_followup_armed = false
 	boot_followup_use_multi = false
 	boot_followup_timer = 0.0
+	boot_followup_input_timer = 0.0
 	boot_followup_kind = ""
 	cross_slash_armed = false
 
@@ -473,6 +493,7 @@ func _consume_hold_combo_followup() -> void:
 	var followup_kind := boot_followup_kind
 	boot_followup_armed = false
 	boot_followup_timer = 0.0
+	boot_followup_input_timer = 0.0
 	boot_followup_kind = ""
 	kick_active = false
 	if followup_kind == "CrossSlash":
@@ -538,6 +559,8 @@ func _resolve_hold_combo() -> void:
 	_trigger_kick(combo_hits)
 
 func take_damage(amount: float, dir: Vector2, _hitter: Node) -> void:
+	if death_pending:
+		return
 	# If performing the hold-to-dash, ignore damage (invulnerable during this dash)
 	# Ignore damage while in hold dash or stick-driven dash invulnerability
 	if hold_dash_active or dash_invulnerable:
@@ -548,7 +571,8 @@ func take_damage(amount: float, dir: Vector2, _hitter: Node) -> void:
 
 	health -= amount
 	if health <= 0.0:
-		get_tree().reload_current_scene()
+		_start_death()
+		return
 	else:
 		anim_player.play("hurt")
 	# If taking damage while attacking and it exceeds hyperarmor, interrupt the attack
@@ -585,6 +609,43 @@ func take_damage(amount: float, dir: Vector2, _hitter: Node) -> void:
 			hit_facing = "north"
 			body.texture = sprite_back
 		body.scale.x = abs(body.scale.x)
+
+
+func _start_death() -> void:
+	if death_pending:
+		return
+	death_pending = true
+	health = 0.0
+	velocity = Vector2.ZERO
+	attack_active = false
+	attack_timer = 0.0
+	attack_buffered = false
+	slash_dash_active = false
+	slash_dash_timer = 0.0
+	stick_dash_active = false
+	stick_dash_timer = 0.0
+	hold_dash_active = false
+	hold_dash_timer = 0.0
+	parry_bounce_active = false
+	hit_reacting = false
+	movement_pending = false
+	tap_detected = false
+	_clear_hold_combo_followup()
+	_clear_hold_combo_buffer()
+	if dash_slash_hitbox:
+		dash_slash_hitbox.monitoring = false
+	if collision_shape:
+		collision_shape.set_deferred("disabled", true)
+	if anim_player:
+		anim_player.stop()
+	if reload_on_death:
+		call_deferred("_reload_scene_after_death")
+
+
+func _reload_scene_after_death() -> void:
+	var tree: SceneTree = get_tree()
+	if tree != null:
+		tree.reload_current_scene()
 
 
 func on_parry_success(hit_dir: Vector2, intensity: float = 1.0, travel_distance: float = -1.0) -> void:
@@ -636,6 +697,8 @@ func on_parry_success(hit_dir: Vector2, intensity: float = 1.0, travel_distance:
 	_start_parry_followup_attack()
 
 func _input(event):
+	if death_pending:
+		return
 	# Allow inputs during post-dash lockout for buffering; block only on attack lockout
 	# Normally block inputs during attack lockout, but allow drag plus all touch events so swipe/dash gestures can finish cleanly
 	if attack_lockout:
@@ -1146,8 +1209,9 @@ func _on_attack_end(reason: String = "attack_end") -> void:
 		_dump_touch_state("on_attack_end:" + reason)
 	movement_pending = false
 	_set_moving(false, reason)
-	tap_detected = false
-	tap_timer = 0.0
+	if active_touch_count <= 0:
+		tap_detected = false
+		tap_timer = 0.0
 	drag_current_pos = Vector2.ZERO
 	if reason != "parry_bounce":
 		parry_followup_pending = false
@@ -1185,20 +1249,22 @@ func _on_attack_end(reason: String = "attack_end") -> void:
 		# reset elevation scale factor
 		_elevation_scale_factor = 1.0
 
-	# Defensive reconciliation: clear any lingering per-touch bookkeeping that
-	# can persist through complex multi-touch sequences and lead to input
-	# lockups. We do this on every attack end to ensure a fresh input state.
-	var _did_clear := false
-	if touch_gestures.size() > 0 or gesture_sequence_indices.size() > 0 or active_touch_ids.size() > 0:
-		_did_clear = true
-		if debug_movement:
-			print("[on_attack_end] Reconciling/clearing lingering touch state")
-		touch_gestures.clear()
-		gesture_sequence_indices = []
-		active_touch_ids.clear()
-		active_touch_count = 0
-		multi_touch_sequence = false
-		hold_touch_id = -1
+		# Defensive reconciliation: clear any lingering per-touch bookkeeping that
+		# can persist through complex multi-touch sequences and lead to input
+		# lockups. We do this on every attack end to ensure a fresh input state.
+		var _did_clear := false
+		var preserve_active_hold := tap_detected and active_touch_count > 0
+		if touch_gestures.size() > 0 or gesture_sequence_indices.size() > 0 or active_touch_ids.size() > 0:
+			_did_clear = true
+			if debug_movement:
+				print("[on_attack_end] Reconciling/clearing lingering touch state")
+			touch_gestures.clear()
+			gesture_sequence_indices = []
+			if not preserve_active_hold:
+				active_touch_ids.clear()
+				active_touch_count = 0
+				multi_touch_sequence = false
+				hold_touch_id = -1
 		# also clear any buffered actions to avoid chained firings
 		# Clear launcher buffers (we don't want chained launchers), but preserve
 		# regular `attack_buffered` so legitimate combo cancels still execute.
@@ -1293,17 +1359,18 @@ func _start_attack(dash_target: Vector2, anim_name: String, intensity: float = 1
 		attack_damage_mult = dash_meter_full_damage_mult
 	
 	_spawn_slash(dash_target, anim_name, intensity, vertical_offset, target_scale, tween_dur, knockback_mult, use_cross_slash_local, attack_base_damage, attack_damage_mult)
+	_set_attack_facing_direction(dash_target - global_position)
 	# Treat cross slash as a combo finisher: reset index and enforce lockout like end-of-chain
 	if use_cross_slash_local:
 		attack_index = 0
 		attack_lockout = true
 		attack_lockout_timer = 0.0
-	# Do not change player facing on attack start; keep current facing
+	# Attack playback owns facing until the attack ends.
 	# Do not perform a movement dash for the launcher animation; launcher is a rooted attack
 	if anim_name != "Launcher" and not suppress_dash:
 		slash_dash_active = true
 		slash_dash_timer = 0.0
-		slash_dash_direction = (dash_target - global_position).normalized()
+		slash_dash_direction = attack_facing_direction if attack_facing_direction.length() > 0.001 else (dash_target - global_position).normalized()
 		slash_dash_origin_position = global_position
 		slash_dash_course_length = global_position.distance_to(dash_target)
 		# record slash dash as the most recent dash direction
@@ -1356,6 +1423,7 @@ func _start_stab_attack(stab_data: Dictionary = {}):
 	var dir = _get_attack_direction()
 	if dir.length() < 0.001:
 		dir = Vector2.RIGHT
+	_set_attack_facing_direction(dir)
 	var dash_target = global_position + dir.normalized() * 60.0
 	var stab_instance = stab_scene.instantiate()
 	add_child(stab_instance)
@@ -1390,7 +1458,7 @@ func _start_stab_attack(stab_data: Dictionary = {}):
 	var stab_anim: AnimationPlayer = stab_instance.get_node_or_null("AnimationPlayer")
 	if stab_anim:
 		stab_anim.play(anim_name)
-	# Do not change player facing for stab; preserve current facing
+	# Stab playback owns facing until the attack ends.
 	# Movement/attack state mirroring normal attacks
 	slash_dash_active = true
 	slash_dash_timer = 0.0
@@ -1428,6 +1496,9 @@ func _disable_movement_for(duration: float):
 	movement_disabled_time = duration
 
 func _process(delta):
+	if death_pending:
+		velocity = Vector2.ZERO
+		return
 	scaled_input_time += delta
 	if parry_bounce_active:
 		parry_bounce_timer += delta
@@ -1492,14 +1563,24 @@ func _process(delta):
 		print("[process] attack_active:", attack_active, "attack_buffered:", attack_buffered, "launcher_buffered:", launcher_buffered, "attack_timer:", attack_timer, "tap_detected:", tap_detected)
 
 	if attack_active:
+		if hold_combo_buffered and _can_cancel_attack_now():
+			attack_active = false
+			attack_timer = 0.0
+			attack_buffered = false
+			attack_buffer_timer = 0.0
+			launcher_buffered = false
+			launcher_buffer_timer = 0.0
+			slash_dash_active = false
+			slash_dash_timer = 0.0
+			_on_attack_end("hold_combo_cancel")
+			if _consume_hold_combo_buffer():
+				return
 		# Allow a buffered attack to cancel into the next attack shortly before the current one ends.
 		# This provides responsive combos: if the player buffered an input, we start the next
 		# attack `combo_cancel_time` seconds before the current attack would naturally finish.
 		if attack_buffered and not launcher_buffered:
 			# Allow cancel either a fixed time before end or once a fraction of the attack has elapsed
-			var early_threshold = attack_duration * combo_cancel_early_frac
-			var can_cancel = attack_timer >= max(0.0, attack_duration - combo_cancel_time) or attack_timer >= early_threshold
-			if can_cancel:
+			if _can_cancel_attack_now():
 				if debug_movement:
 					print("[process] combo-cancel: consuming attack_buffered early (attack_timer):", attack_timer)
 				# consume buffered attack immediately
@@ -1527,13 +1608,13 @@ func _process(delta):
 		# If any buffers were created during this attack, leave them to be handled when the attack ends.
 		if (launcher_buffered or attack_buffered) and debug_movement:
 			print("[process] buffered while active -> will wait until attack end:", "attack_timer:", attack_timer, "launcher_buffered:", launcher_buffered, "attack_buffered:", attack_buffered)
-		if attack_timer == 0.0: # Just started attack
-			# Start dash and lockout (use movement/attack direction as dash direction)
-			slash_dash_active = true
-			slash_dash_timer = 0.0
-			slash_dash_direction = _get_attack_direction()
-			post_dash_lockout = false
-			post_dash_lockout_timer = 0.0
+			if attack_timer == 0.0: # Just started attack
+				# Start dash and lockout (use movement/attack direction as dash direction)
+				slash_dash_active = true
+				slash_dash_timer = 0.0
+				slash_dash_direction = attack_facing_direction if attack_facing_direction.length() > 0.001 else _get_attack_direction()
+				post_dash_lockout = false
+				post_dash_lockout_timer = 0.0
 		elif attack_timer >= attack_duration:
 			attack_active = false
 			attack_timer = 0.0
@@ -1558,6 +1639,10 @@ func _process(delta):
 				launcher_buffered = false
 				attack_buffered = false
 		
+		if attack_buffered and boot_followup_armed and boot_followup_timer <= 0.0:
+			_consume_hold_combo_followup()
+			return
+
 		if attack_buffered and not boot_followup_armed:
 			if debug_movement:
 				print("[process] attack_buffered while idle -> starting attack (launcher_buffered:", launcher_buffered, ")")
@@ -1609,12 +1694,15 @@ func _process(delta):
 			_start_attack(atk_dash_target, anim_name, intensity, 0.0, 1.0, 0.25, kb_mult)
 
 	# Hold-driven boot follow-up timer. Once the boot animation has had time to
-	# play, continue into the stored follow-up without requiring another input.
+	# play, a separate tap can consume the stored follow-up.
 	if boot_followup_armed:
 		if boot_followup_timer > 0.0:
 			boot_followup_timer = max(0.0, boot_followup_timer - delta)
-		if boot_followup_timer <= 0.0 and not attack_active:
-			_consume_hold_combo_followup()
+		if boot_followup_timer <= 0.0:
+			kick_active = false
+			boot_followup_input_timer = max(0.0, boot_followup_input_timer - delta)
+			if boot_followup_input_timer <= 0.0:
+				_clear_hold_combo_followup()
 	elif hold_combo_buffered and not attack_active:
 		_consume_hold_combo_buffer()
 
@@ -1933,9 +2021,11 @@ func _process(delta):
 		kick_ready = false
 		kick_timer = 0.0
 		kick_arm_time = 0.0
-		_clear_hold_combo_followup()
+		if not boot_followup_armed:
+			_clear_hold_combo_followup()
 		_clear_hold_combo_buffer()
-		consecutive_light_attacks = 0
+		if not boot_followup_armed:
+			consecutive_light_attacks = 0
 		# clamp to avoid repeated resets rapidly
 		time_since_last_attack = 0.0
 
@@ -2210,30 +2300,27 @@ func _process(delta):
 					dir_vec = hold_dash_direction
 					facing_source = "hold"
 				else:
-					# Prefer joystick direction if available (direction-only input).
-						# While attacking, prefer the attack/dash direction instead
-						# of the tap position so the sprite remains consistent with
-						# the performed attack. Only use `tap_position` for facing
-						# when the player is actively moving (not attacking).
-						if stick_dir_frame.length() > 0.0:
-							dir_vec = stick_dir_frame
-							facing_source = "stick"
-						elif attack_active:
-							# Use the active slash/attack direction when available;
-							# fall back to the generic attack direction helper if needed.
-							if slash_dash_direction.length() > 0.0:
-								dir_vec = slash_dash_direction
-							else:
-								dir_vec = _current_facing_direction()
-							facing_source = "attack"
-						elif moving:
-							dir_vec = tap_position - global_position
-							facing_source = "tap"
+					# During attack playback, sprite facing must stay aligned to
+					# the attack vector instead of live joystick drift.
+					if attack_active:
+						if attack_facing_direction.length() > 0.001:
+							dir_vec = attack_facing_direction
+						elif slash_dash_direction.length() > 0.0:
+							dir_vec = slash_dash_direction
 						else:
-							# Fallback to the last known movement direction so facing doesn't
-							# snap to a default while idle.
-							dir_vec = last_stick_dir
-							facing_source = "laststick"
+							dir_vec = _current_facing_direction()
+						facing_source = "attack"
+					elif stick_dir_frame.length() > 0.0:
+						dir_vec = stick_dir_frame
+						facing_source = "stick"
+					elif moving:
+						dir_vec = tap_position - global_position
+						facing_source = "tap"
+					else:
+						# Fallback to the last known movement direction so facing doesn't
+						# snap to a default while idle.
+						dir_vec = last_stick_dir
+						facing_source = "laststick"
 			if dir_vec.length() > 0.1:
 				# Emit a compact debug line to identify what set facing this frame.
 				# Enable by setting `print_facing_debug = true` in-scene or here.
@@ -2694,6 +2781,7 @@ func _trigger_kick(combo_hits: int = -1) -> void:
 	var boot_node: Node2D = get_node_or_null("Boot")
 	var dir = _get_attack_direction()
 	if dir.length() > 0.0001:
+		_set_attack_facing_direction(dir)
 		# Preserve player facing; rotate boot node only
 		if boot_node:
 			boot_node.rotation = dir.angle() + PI / 2.0

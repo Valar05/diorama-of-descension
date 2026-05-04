@@ -31,8 +31,11 @@ Important state groups:
   - 1 hit in the string: `Boot` -> `HeavyStab`
   - 2 hits in the string: `Boot` -> `MultiStab`
   - 3+ hits in the string: `Boot` -> `CrossSlash`
+- The hold threshold is `0.2s` so `Boot` activates intentionally while staying responsive on mobile touch.
 - If hold is pressed during an active light attack, it buffers the heavy branch.
-- The buffered branch waits for the current light attack to finish, plays `Boot`, then waits for the boot timer before spawning the follow-up.
+- The buffered branch waits for the current light attack to finish, then plays `Boot`.
+- After `Boot`, the stab/cross-slash follow-up stays armed until the next separate tap.
+- The follow-up tap uses `boot_followup_input_window`, separate from the normal light-combo reset.
 
 ### Dash And Meter
 
@@ -107,6 +110,7 @@ Use these from the Downloads copy:
 ```sh
 sh tools/smoke_test_launch.sh
 sh tools/hold_combo_test.sh
+sh tools/player_death_test.sh
 sh tools/parry_bounce_test.sh
 sh tools/parry_followup_test.sh
 sh tools/enemy_facing_test.sh
